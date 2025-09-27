@@ -1,0 +1,35 @@
+{
+  "name": "falcon",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FALCON - Full-stack aviation weather briefing application (frontend + backend).",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "verify-setup": "node verify-setup.js",
+    "clean-install": "npm run clean && npm run bootstrap",
+    "clean": "rimraf node_modules backend/node_modules frontend/node_modules package-lock.json backend/package-lock.json frontend/package-lock.json",
+    "health-ping": "npm run verify-setup && npm run backend:health && npm run frontend:health",
+    "backend:health": "curl -f http://localhost:3001/health || echo 'Backend health check failed'",
+    "frontend:health": "curl -f http://localhost:3000 || echo 'Frontend health check failed'",
+    "bootstrap": "npm run backend:install && npm run frontend:install",
+    "backend:install": "npm install --prefix backend",
+    "frontend:install": "npm install --prefix frontend",
+    "backend:dev": "npm run dev --prefix backend",
+    "frontend:dev": "npm run dev --prefix frontend",
+    "backend:start": "npm run start --prefix backend",
+    "frontend:preview": "npm run preview --prefix frontend",
+    "dev": "concurrently \"npm:backend:dev\" \"npm:frontend:dev\"",
+    "start": "concurrently \"npm:backend:start\" \"npm:frontend:preview\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "kill-port": "^2.0.1",
+    "rimraf": "^5.0.5"
+  }
+}

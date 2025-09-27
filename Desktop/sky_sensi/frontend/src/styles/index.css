@@ -1,0 +1,288 @@
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* Base styles for aviation weather app */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  body {
+    @apply antialiased font-aviation;
+    background: theme('colors.cockpit.bg');
+    color: theme('colors.cockpit.text');
+  }
+  
+  /* Custom scrollbars for dark theme */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-800 rounded;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-600 rounded hover:bg-gray-500;
+  }
+  
+  /* Focus styles for accessibility */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-cockpit-accent;
+  }
+}
+
+@layer components {
+  /* Flight category indicators */
+  .flight-category-vfr {
+    @apply bg-vfr-500/10 border-vfr-500/30 text-vfr-500;
+  }
+  
+  .flight-category-mvfr {
+    @apply bg-mvfr-500/10 border-mvfr-500/30 text-mvfr-500;
+  }
+  
+  .flight-category-ifr {
+    @apply bg-ifr-500/10 border-ifr-500/30 text-ifr-500;
+  }
+  
+  .flight-category-lifr {
+    @apply bg-lifr-500/10 border-lifr-500/30 text-lifr-500;
+  }
+  
+  /* Severity indicators for weather alerts */
+  .severity-high {
+    @apply bg-severity-high/10 border-severity-high/30 text-severity-high;
+  }
+  
+  .severity-medium {
+    @apply bg-severity-medium/10 border-severity-medium/30 text-severity-medium;
+  }
+  
+  .severity-low {
+    @apply bg-severity-low/10 border-severity-low/30 text-severity-low;
+  }
+  
+  /* Weather data cards */
+  .weather-card {
+    @apply bg-cockpit-panel border border-gray-600 rounded-lg p-4;
+    transition: border-color 0.2s ease-in-out;
+  }
+  
+  .weather-card:hover {
+    @apply border-gray-500;
+  }
+
+  /* OpenWeatherMap overlay enhancements */
+  .owm-tiles {
+    filter: contrast(160%) brightness(115%) saturate(140%);
+    mix-blend-mode: multiply;
+  }
+  
+  /* Input styles for aviation forms */
+  .aviation-input {
+    @apply w-full px-4 py-3 bg-cockpit-bg border border-gray-600 rounded-lg 
+           text-white placeholder-gray-500 focus:outline-none focus:ring-2 
+           focus:ring-cockpit-accent/50 focus:border-cockpit-accent transition-colors;
+  }
+  
+  .aviation-input:disabled {
+    @apply opacity-50 cursor-not-allowed;
+  }
+  
+  /* Button styles */
+  .btn-primary {
+    @apply px-6 py-3 bg-cockpit-accent text-white rounded-lg font-semibold 
+           hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-cockpit-accent/50 
+           disabled:opacity-50 disabled:cursor-not-allowed transition-colors;
+  }
+  
+  .btn-secondary {
+    @apply px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium 
+           hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500/50 
+           transition-colors;
+  }
+  
+  /* Chat message bubbles */
+  .chat-bubble-user {
+    @apply bg-cockpit-accent text-white rounded-lg px-4 py-2 max-w-xs ml-auto;
+  }
+  
+  .chat-bubble-ai {
+    @apply bg-cockpit-bg border border-gray-600 text-gray-300 rounded-lg px-4 py-2 max-w-sm;
+  }
+  
+  .chat-bubble-error {
+    @apply bg-severity-high/10 border border-severity-high/30 text-severity-high 
+           rounded-lg px-4 py-2 max-w-sm;
+  }
+  
+  /* Loading animations */
+  .loading-spinner {
+    @apply animate-spin rounded-full border-2 border-gray-300 border-t-cockpit-accent;
+  }
+  
+  .loading-pulse {
+    @apply animate-pulse-slow bg-gray-600 rounded;
+  }
+  
+  /* Weather data grid */
+  .weather-grid {
+    @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4;
+  }
+  
+  /* Responsive breakpoints for aviation displays */
+  .aviation-mobile {
+    @apply block md:hidden;
+  }
+  
+  .aviation-tablet {
+    @apply hidden md:block lg:hidden;
+  }
+  
+  .aviation-desktop {
+    @apply hidden lg:block;
+  }
+  
+  /* Status indicators */
+  .status-indicator {
+    @apply w-3 h-3 rounded-full;
+  }
+  
+  .status-online {
+    @apply bg-vfr-500 animate-pulse;
+  }
+  
+  .status-offline {
+    @apply bg-severity-high;
+  }
+  
+  .status-warning {
+    @apply bg-mvfr-500;
+  }
+  
+  /* Typography for aviation data */
+  .aviation-code {
+    @apply font-mono text-sm bg-gray-800 px-2 py-1 rounded;
+  }
+  
+  .aviation-heading {
+    @apply text-xl font-semibold text-white mb-2;
+  }
+  
+  .aviation-subheading {
+    @apply text-lg font-medium text-gray-300 mb-1;
+  }
+  
+  .aviation-label {
+    @apply text-sm font-medium text-gray-400 uppercase tracking-wide;
+  }
+  
+  /* Alert animations */
+  .alert-flash {
+    animation: flash 2s infinite;
+  }
+  
+  @keyframes flash {
+    0%, 50%, 100% { opacity: 1; }
+    25%, 75% { opacity: 0.5; }
+  }
+  
+  /* Reliability progress bars */
+  .reliability-bar {
+    @apply w-full bg-gray-700 rounded-full h-2 overflow-hidden;
+  }
+  
+  .reliability-fill {
+    @apply h-full rounded-full transition-all duration-500;
+  }
+  
+  /* Weather phenomena icons */
+  .weather-icon {
+    @apply w-5 h-5 text-gray-400;
+  }
+  
+  /* Altitude recommendation styling */
+  .altitude-recommendation {
+    @apply bg-cockpit-accent/10 border border-cockpit-accent/30 rounded-lg p-4;
+  }
+  
+  /* Print styles for pilot reference */
+  @media print {
+    .no-print {
+      display: none !important;
+    }
+    
+    body {
+      @apply text-black bg-white;
+    }
+    
+    .weather-card {
+      @apply border-gray-300 bg-white;
+    }
+  }
+}
+
+@layer utilities {
+  /* Aviation-specific utilities */
+  .text-flight-vfr {
+    color: theme('colors.vfr.500');
+  }
+  
+  .text-flight-mvfr {
+    color: theme('colors.mvfr.500');
+  }
+  
+  .text-flight-ifr {
+    color: theme('colors.ifr.500');
+  }
+  
+  .text-flight-lifr {
+    color: theme('colors.lifr.500');
+  }
+  
+  /* Visibility utilities for responsive design */
+  .show-mobile-only {
+    @apply block sm:hidden;
+  }
+  
+  .hide-mobile {
+    @apply hidden sm:block;
+  }
+  
+  /* Animation utilities */
+  .animate-fade-in {
+    animation: fadeIn 0.5s ease-in-out;
+  }
+  
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+  
+  @keyframes slideUp {
+    from { transform: translateY(100%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  
+  /* Text selection colors for better UX */
+  .select-aviation::selection {
+    @apply bg-cockpit-accent/30 text-white;
+  }
+  
+  /* Focus trap for modals/dialogs */
+  .focus-trap {
+    @apply relative overflow-hidden;
+  }
+  
+  .focus-trap::before {
+    content: '';
+    @apply fixed inset-0 bg-black/50 backdrop-blur-sm z-40;
+  }
+}
