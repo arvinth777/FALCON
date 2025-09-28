@@ -101,13 +101,17 @@ const WeatherMap = ({
     route: true,
     clouds: hasCloudLayer,
     precipitation: false,
-    wind: false
+    wind: false,
+    temperature: false,
+    pressure: false
   });
 
   const [layerLoading, setLayerLoading] = useState({
     clouds: false,
     precipitation: false,
-    wind: false
+    wind: false,
+    temperature: false,
+    pressure: false
   });
 
 
@@ -483,7 +487,7 @@ const WeatherMap = ({
   // Handle layer toggle with intelligent management
   const toggleLayer = (layerType) => {
     // For weather layers, manage loading state
-    if (['clouds', 'precipitation', 'wind'].includes(layerType)) {
+    if (['clouds', 'precipitation', 'wind', 'temperature', 'pressure'].includes(layerType)) {
       if (!selectedLayers[layerType]) {
         setLayerLoading(prev => ({ ...prev, [layerType]: true }));
         // Reset loading state after a brief delay
@@ -586,38 +590,66 @@ const WeatherMap = ({
               <span>PIREPs</span>
             </label>
 
-            <label className={`flex items-center space-x-2 text-xs ${hasCloudLayer ? 'text-gray-800' : 'text-gray-400'}`}>
-              <input
-                type="checkbox"
-                checked={selectedLayers.clouds && hasCloudLayer}
-                onChange={() => hasCloudLayer && toggleLayer('clouds')}
-                className="rounded"
-                disabled={!hasCloudLayer || layerLoading.clouds}
-              />
-              <span>Cloud Coverage{layerLoading.clouds ? ' (loading...)' : (!hasCloudLayer ? ' (unavailable: set VITE_OWM_KEY)' : '')}</span>
-            </label>
+            {/* Weather Overlays Subsection */}
+            <div className="mt-3 pt-2 border-t border-gray-200">
+              <div className="text-xs font-medium text-gray-600 mb-2">Weather Overlays</div>
+              <div className="space-y-1 pl-2">
+                <label className={`flex items-center space-x-2 text-xs ${hasCloudLayer ? 'text-gray-800' : 'text-gray-400'}`}>
+                  <input
+                    type="checkbox"
+                    checked={selectedLayers.clouds && hasCloudLayer}
+                    onChange={() => hasCloudLayer && toggleLayer('clouds')}
+                    className="rounded"
+                    disabled={!hasCloudLayer || layerLoading.clouds}
+                  />
+                  <span>Cloud Coverage{layerLoading.clouds ? ' (loading...)' : (!hasCloudLayer ? ' (unavailable: set VITE_OWM_KEY)' : '')}</span>
+                </label>
 
-            <label className={`flex items-center space-x-2 text-xs ${hasCloudLayer ? 'text-gray-800' : 'text-gray-400'}`}>
-              <input
-                type="checkbox"
-                checked={selectedLayers.precipitation && hasCloudLayer}
-                onChange={() => hasCloudLayer && toggleLayer('precipitation')}
-                className="rounded"
-                disabled={!hasCloudLayer || layerLoading.precipitation}
-              />
-              <span>Precipitation{layerLoading.precipitation ? ' (loading...)' : (!hasCloudLayer ? ' (unavailable: set VITE_OWM_KEY)' : '')}</span>
-            </label>
+                <label className={`flex items-center space-x-2 text-xs ${hasCloudLayer ? 'text-gray-800' : 'text-gray-400'}`}>
+                  <input
+                    type="checkbox"
+                    checked={selectedLayers.precipitation && hasCloudLayer}
+                    onChange={() => hasCloudLayer && toggleLayer('precipitation')}
+                    className="rounded"
+                    disabled={!hasCloudLayer || layerLoading.precipitation}
+                  />
+                  <span>Precipitation{layerLoading.precipitation ? ' (loading...)' : (!hasCloudLayer ? ' (unavailable: set VITE_OWM_KEY)' : '')}</span>
+                </label>
 
-            <label className={`flex items-center space-x-2 text-xs ${hasCloudLayer ? 'text-gray-800' : 'text-gray-400'}`}>
-              <input
-                type="checkbox"
-                checked={selectedLayers.wind && hasCloudLayer}
-                onChange={() => hasCloudLayer && toggleLayer('wind')}
-                className="rounded"
-                disabled={!hasCloudLayer || layerLoading.wind}
-              />
-              <span>Wind{layerLoading.wind ? ' (loading...)' : (!hasCloudLayer ? ' (unavailable: set VITE_OWM_KEY)' : '')}</span>
-            </label>
+                <label className={`flex items-center space-x-2 text-xs ${hasCloudLayer ? 'text-gray-800' : 'text-gray-400'}`}>
+                  <input
+                    type="checkbox"
+                    checked={selectedLayers.wind && hasCloudLayer}
+                    onChange={() => hasCloudLayer && toggleLayer('wind')}
+                    className="rounded"
+                    disabled={!hasCloudLayer || layerLoading.wind}
+                  />
+                  <span>Wind{layerLoading.wind ? ' (loading...)' : (!hasCloudLayer ? ' (unavailable: set VITE_OWM_KEY)' : '')}</span>
+                </label>
+
+                <label className={`flex items-center space-x-2 text-xs ${hasCloudLayer ? 'text-gray-800' : 'text-gray-400'}`}>
+                  <input
+                    type="checkbox"
+                    checked={selectedLayers.temperature && hasCloudLayer}
+                    onChange={() => hasCloudLayer && toggleLayer('temperature')}
+                    className="rounded"
+                    disabled={!hasCloudLayer || layerLoading.temperature}
+                  />
+                  <span>Temperature{layerLoading.temperature ? ' (loading...)' : (!hasCloudLayer ? ' (unavailable: set VITE_OWM_KEY)' : '')}</span>
+                </label>
+
+                <label className={`flex items-center space-x-2 text-xs ${hasCloudLayer ? 'text-gray-800' : 'text-gray-400'}`}>
+                  <input
+                    type="checkbox"
+                    checked={selectedLayers.pressure && hasCloudLayer}
+                    onChange={() => hasCloudLayer && toggleLayer('pressure')}
+                    className="rounded"
+                    disabled={!hasCloudLayer || layerLoading.pressure}
+                  />
+                  <span>Pressure{layerLoading.pressure ? ' (loading...)' : (!hasCloudLayer ? ' (unavailable: set VITE_OWM_KEY)' : '')}</span>
+                </label>
+              </div>
+            </div>
 
           </div>
         </div>
@@ -707,7 +739,7 @@ const WeatherMap = ({
             url={`https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${OWM_KEY}`}
             opacity={0.7}
             className="owm-cloud-tiles"
-            attribution="&copy; OpenWeather"
+            attribution="Weather data &copy; OpenWeatherMap"
             maxZoom={12}
             zIndex={650}
             tileSize={256}
@@ -738,7 +770,7 @@ const WeatherMap = ({
             url={`https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=${OWM_KEY}`}
             opacity={0.7}
             className="owm-precip-tiles"
-            attribution="&copy; OpenWeather"
+            attribution="Weather data &copy; OpenWeatherMap"
             maxZoom={12}
             zIndex={610}
             tileSize={256}
@@ -760,7 +792,7 @@ const WeatherMap = ({
             url={`https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=${OWM_KEY}`}
             opacity={0.7}
             className="owm-wind-tiles"
-            attribution="&copy; OpenWeather"
+            attribution="Weather data &copy; OpenWeatherMap"
             maxZoom={12}
             zIndex={620}
             tileSize={256}
@@ -772,6 +804,60 @@ const WeatherMap = ({
               loading: () => setLayerLoading(prev => ({ ...prev, wind: true })),
               load: () => setLayerLoading(prev => ({ ...prev, wind: false })),
               tileerror: () => setLayerLoading(prev => ({ ...prev, wind: false }))
+            }}
+          />
+        )}
+
+        {OWM_KEY && selectedLayers.temperature && (
+          <TileLayer
+            key={`owm-temp-${OWM_KEY}`}
+            url={`https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${OWM_KEY}`}
+            opacity={0.6}
+            className="owm-temp-tiles"
+            attribution="Weather data &copy; OpenWeatherMap"
+            maxZoom={12}
+            zIndex={605}
+            tileSize={256}
+            updateWhenIdle={true}
+            updateWhenZooming={false}
+            keepBuffer={2}
+            crossOrigin={true}
+            eventHandlers={{
+              loading: () => {
+                setLayerLoading(prev => ({ ...prev, temperature: true }));
+                if (import.meta.env.VITE_ENABLE_DEBUG_LOGS === 'true') {
+                  console.debug('[OWM] Temperature layer mounted');
+                }
+              },
+              load: () => setLayerLoading(prev => ({ ...prev, temperature: false })),
+              tileerror: () => setLayerLoading(prev => ({ ...prev, temperature: false }))
+            }}
+          />
+        )}
+
+        {OWM_KEY && selectedLayers.pressure && (
+          <TileLayer
+            key={`owm-pressure-${OWM_KEY}`}
+            url={`https://tile.openweathermap.org/map/pressure_new/{z}/{x}/{y}.png?appid=${OWM_KEY}`}
+            opacity={0.6}
+            className="owm-pressure-tiles"
+            attribution="Weather data &copy; OpenWeatherMap"
+            maxZoom={12}
+            zIndex={600}
+            tileSize={256}
+            updateWhenIdle={true}
+            updateWhenZooming={false}
+            keepBuffer={2}
+            crossOrigin={true}
+            eventHandlers={{
+              loading: () => {
+                setLayerLoading(prev => ({ ...prev, pressure: true }));
+                if (import.meta.env.VITE_ENABLE_DEBUG_LOGS === 'true') {
+                  console.debug('[OWM] Pressure layer mounted');
+                }
+              },
+              load: () => setLayerLoading(prev => ({ ...prev, pressure: false })),
+              tileerror: () => setLayerLoading(prev => ({ ...prev, pressure: false }))
             }}
           />
         )}
