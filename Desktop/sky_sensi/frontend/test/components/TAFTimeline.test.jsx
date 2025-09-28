@@ -20,28 +20,32 @@ vi.mock('recharts', () => {
 describe('TAFTimeline', () => {
   it('renders fallback when no data is provided', () => {
     render(<TAFTimeline tafData={[]} />);
-    expect(screen.getByText('No TAF Timeline Data')).toBeInTheDocument();
+    expect(screen.getByText('No TAF blocks available')).toBeInTheDocument();
   });
 
   it('renders summary statistics when data is available', () => {
     const tafData = [
       {
-        validFrom: '2024-02-12T12:00:00Z',
-        validTo: '2024-02-12T15:00:00Z',
-        visibility: 6,
-        ceiling: 3000,
-        changeType: 'BASE',
-        airportCode: 'KLAX',
-        airportName: 'Los Angeles Intl'
-      },
-      {
-        validFrom: '2024-02-12T15:00:00Z',
-        validTo: '2024-02-12T18:00:00Z',
-        visibility: 3,
-        ceiling: 1000,
-        changeType: 'TEMPO',
-        airportCode: 'KLAX',
-        airportName: 'Los Angeles Intl'
+        icao: 'KLAX',
+        name: 'Los Angeles Intl',
+        flightTimeline: [
+          {
+            start: '2024-02-12T12:00:00Z',
+            end: '2024-02-12T15:00:00Z',
+            category: 'VFR',
+            visibilitySM: 6,
+            ceilingFT: 3000,
+            wind: { dir: 250, spd: 10, gst: null }
+          },
+          {
+            start: '2024-02-12T15:00:00Z',
+            end: '2024-02-12T18:00:00Z',
+            category: 'MVFR',
+            visibilitySM: 3,
+            ceilingFT: 1000,
+            wind: { dir: 270, spd: 15, gst: 20 }
+          }
+        ]
       }
     ];
 
@@ -57,14 +61,22 @@ describe('TAFTimeline', () => {
   it('gracefully handles invalid timestamps', () => {
     const tafData = [
       {
-        validFrom: 'Not a date',
-        validTo: 'Also not a date',
-        airportCode: 'KJFK',
-        airportName: 'John F. Kennedy Intl'
+        icao: 'KJFK',
+        name: 'John F. Kennedy Intl',
+        flightTimeline: [
+          {
+            start: 'Not a date',
+            end: 'Also not a date',
+            category: 'VFR',
+            visibilitySM: 10,
+            ceilingFT: null,
+            wind: { dir: null, spd: null, gst: null }
+          }
+        ]
       }
     ];
 
     expect(() => render(<TAFTimeline tafData={tafData} />)).not.toThrow();
-    expect(screen.getByText('TAF Gantt Timeline')).toBeInTheDocument();
+    expect(screen.getByText('No TAF blocks available')).toBeInTheDocument();
   });
 });

@@ -289,7 +289,7 @@ function App() {
                       <WeatherMap
                         airports={mapData.airports}
                         sigmets={mapData.sigmets}
-                        isigmets={briefingData?.isigmets}
+                        isigmets={briefingData?.isigmets || []}
                         pireps={mapData.pireps}
                         metarsByIcao={briefingData?.metarsByIcao || {}}
                         tafsByIcao={briefingData?.tafsByIcao || {}}
@@ -297,6 +297,7 @@ function App() {
                         className="h-[600px]"
                         onAirportClick={(airport) => console.log('Airport clicked:', airport)}
                         onSigmetClick={(sigmet) => console.log('SIGMET clicked:', sigmet)}
+                        onIsigmetClick={(isigmet) => console.log('ISIGMET clicked:', isigmet)}
                         onPirepClick={(pirep) => console.log('PIREP clicked:', pirep)}
                       />
                     )}

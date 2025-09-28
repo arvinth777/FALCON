@@ -12,10 +12,21 @@
     "start": "node src/server.js",
     "predev": "npm run validate-env",
     "dev": "nodemon src/server.js",
-    "test": "node --test",
+    "test": "c8 --reporter=json --reporter=text --reports-dir=coverage node --test",
+    "test:unit": "node --test",
+    "test:coverage": "c8 --reporter=json --reporter=html --reports-dir=coverage node --test",
+    "test:watch": "node --test --watch",
+    "test:open-meteo": "node --test src/services/openMeteoService.test.js",
     "health": "curl -sf http://localhost:3001/health >/dev/null && echo 'Backend health: OK' || (echo 'Backend health: FAIL' && exit 1)",
     "validate-env": "node -e \"require('dotenv').config(); const required = ['GEMINI_API_KEY', 'PORT', 'NODE_ENV', 'CORS_ORIGINS']; const missing = required.filter(key => !process.env[key]); if (missing.length) { console.error('Missing required environment variables:', missing.join(', ')); process.exit(1); } console.log('Environment variables validated successfully');\"",
-    "postinstall": "node -e \"(async()=>{try{await import('@google/generative-ai');console.log('Google Generative AI SDK loaded successfully');}catch(e){console.warn('Warning: Google Generative AI SDK could not be loaded:',e.message)}})();\""
+    "postinstall": "node -e \"(async()=>{try{await import('@google/generative-ai');console.log('Google Generative AI SDK loaded successfully');}catch(e){console.warn('Warning: Google Generative AI SDK could not be loaded:',e.message)}})();\"",
+    "health:check": "node -e \"const ServiceHealthCheckers = require('../service-health-checkers.js'); const checkers = new ServiceHealthCheckers(); checkers.checkAllServices().then(results => console.log('Backend services:', JSON.stringify(results, null, 2)));\"",
+    "health:gemini": "node -e \"const ServiceHealthCheckers = require('../service-health-checkers.js'); const checkers = new ServiceHealthCheckers(); checkers.checkGeminiHealth().then(result => console.log('Gemini service:', JSON.stringify(result, null, 2)));\"",
+    "health:awc": "node -e \"const ServiceHealthCheckers = require('../service-health-checkers.js'); const checkers = new ServiceHealthCheckers(); checkers.checkAwcHealth().then(result => console.log('AWC service:', JSON.stringify(result, null, 2)));\"",
+    "health:backend": "node -e \"const ServiceHealthCheckers = require('../service-health-checkers.js'); const checkers = new ServiceHealthCheckers(); checkers.checkBackendHealth().then(result => console.log('Backend service:', JSON.stringify(result, null, 2)));\"",
+    "performance:check": "node -e \"const PerformanceMonitor = require('../performance-monitor.js'); const monitor = new PerformanceMonitor(); monitor.collectMetrics().then(metrics => console.log('Backend performance:', JSON.stringify(metrics.application, null, 2)));\"",
+    "environment:check": "node -e \"const EnvironmentValidator = require('../environment-validator.js'); const validator = new EnvironmentValidator(); validator.validateEnvironmentVariables('backend').then(result => console.log('Backend environment:', JSON.stringify(result, null, 2)));\"",
+    "dependencies:audit": "npm audit --audit-level=moderate"
   },
   "keywords": [
     "aviation",
@@ -41,6 +52,7 @@
     "node-cache": "^5.1.2"
   },
   "devDependencies": {
+    "c8": "^8.0.1",
     "nodemon": "^3.0.1"
   }
 }

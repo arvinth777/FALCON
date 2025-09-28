@@ -1,10 +1,13 @@
 const { makeRequest } = require('../utils/awcClient');
 const TTLCache = require('../cache/ttlCache');
 const { normalizeTimestamp } = require('../utils/timestampUtils');
-const { isValidGeometry } = require('../utils/geo');
+const { isValidGeometry, coerceGeometryToPolygon } = require('../utils/geo');
 const { normalizeISIGMET } = require('../utils/isigmetNormalize');
 
 class ISIGMETFetcher {
+  static debugCounter = 0;
+  static firstDebugDone = false;
+
   static getCacheTTLSeconds() {
     const parsed = parseInt(process.env.ISIGMET_CACHE_TTL_SECONDS, 10);
     if (!Number.isNaN(parsed) && parsed > 0) {
@@ -51,33 +54,64 @@ class ISIGMETFetcher {
     for (const segment of bboxSegments) {
       const segmentResults = await this.fetchGeoJsonSegment(segment);
       for (const entry of segmentResults) {
-        if (!entry?.id || seenIds.has(entry.id)) {
+        // Generate a temporary ID for deduplication - proper ID will be created during normalization
+        const tempId = entry?.id ||
+                       entry?.properties?.id ||
+                       entry?.properties?.sigmet_id ||
+                       `${entry?.properties?.issuing_unit || "isigmet"}-${entry?.properties?.issueTime || entry?.properties?.validTimeFrom || "t"}-${combinedResults.length}`;
+
+        if (seenIds.has(tempId)) {
           continue;
         }
-        seenIds.add(entry.id);
+        seenIds.add(tempId);
         combinedResults.push(entry);
       }
     }
 
-    // Create a FeatureCollection from the combined results
-    const featureCollection = {
-      type: 'FeatureCollection',
-      features: combinedResults.map((item, idx) => ({
-        type: 'Feature',
-        id: item.id || `isigmet_${idx}`,
-        properties: item,
-        geometry: item.geometry
-      }))
-    };
+    // Apply geometry normalization directly to the transformed features
+    let normalizedFeatures = [];
+    let geometryDrops = 0;
 
-    // Normalize the FeatureCollection using the new normalizer
-    const normalizedFC = normalizeISIGMET(featureCollection);
+    for (const item of combinedResults) {
+      try {
+        if (!item.geometry) {
+          geometryDrops++;
+          continue;
+        }
+
+        // Create a temporary GeoJSON feature for geometry normalization
+        const tempFeature = {
+          type: 'Feature',
+          id: item.id,
+          properties: item,
+          geometry: item.geometry
+        };
+
+        // Use the geometry normalization from normalizeISIGMET
+        const tempFC = { type: 'FeatureCollection', features: [tempFeature] };
+        const normalizedFC = normalizeISIGMET(tempFC);
+
+        if (normalizedFC.features.length > 0) {
+          const normalizedFeature = normalizedFC.features[0];
+          // Keep the original item structure but use normalized geometry
+          normalizedFeatures.push({
+            ...item,
+            geometry: normalizedFeature.geometry
+          });
+        } else {
+          geometryDrops++;
+        }
+      } catch (error) {
+        console.warn('Failed to normalize ISIGMET geometry for', item.id, error.message);
+        geometryDrops++;
+      }
+    }
 
     const ttlSeconds = this.getCacheTTLSeconds();
-    TTLCache.set(cacheKey, normalizedFC, ttlSeconds);
+    TTLCache.set(cacheKey, normalizedFeatures, ttlSeconds);
 
-    console.log(`Successfully fetched ${normalizedFC.features.length} International SIGMETs across ${bboxSegments.length} segment(s), dropped: ${normalizedFC._dropped || 0}`);
-    return normalizedFC;
+    console.log(`Successfully fetched ${normalizedFeatures.length} International SIGMETs across ${bboxSegments.length} segment(s), geometry drops: ${geometryDrops}`);
+    return normalizedFeatures;
   }
 
   static splitBoundingBox(bboxString) {
@@ -121,6 +155,21 @@ class ISIGMETFetcher {
 
       const features = Array.isArray(response.data.features) ? response.data.features : [];
       console.log('Raw ISIGMET features received:', features.length, 'for bbox', bboxString);
+
+      // DEBUG: sample a few raw features to see geometry types and available fields
+      if (process.env.NODE_ENV === 'development') {
+        const n = Math.min(3, features.length);
+        for (let i = 0; i < n; i++) {
+          const f = features[i];
+          console.log('[ISIGMET RAW SAMPLE]', {
+            geomType: f?.geometry?.type,
+            propKeys: f?.properties ? Object.keys(f.properties).slice(0, 12) : [],
+            hazard: f?.properties?.hazard,
+            phenomenon: f?.properties?.phenomenon,
+            sigmet_type: f?.properties?.sigmet_type,
+          });
+        }
+      }
 
       const normalizedFeatures = features.map(feature => this.transformFeature(feature)).filter(Boolean);
       const droppedCount = features.length - normalizedFeatures.length;
@@ -177,17 +226,42 @@ class ISIGMETFetcher {
   static categorizePhenomenon(hazard) {
     if (!hazard) return 'UNKNOWN';
 
-    const hazardUpper = hazard.toUpperCase();
+    const hazardUpper = String(hazard).trim().toUpperCase();
+    if (!hazardUpper) return 'UNKNOWN';
 
-    if (hazardUpper.includes('TURB')) return 'TURBULENCE';
-    if (hazardUpper.includes('ICE')) return 'ICING';
-    if (hazardUpper.includes('CONVECTIVE') || hazardUpper.includes('TSTM')) return 'CONVECTIVE';
-    if (hazardUpper.includes('TROPICAL') || hazardUpper.includes('CYCLONE')) return 'TROPICAL_CYCLONE';
-    if (hazardUpper.includes('DUST') || hazardUpper.includes('SAND')) return 'DUST';
-    if (hazardUpper.includes('ASH') || hazardUpper.includes('VOLCANIC')) return 'VOLCANIC_ASH';
-    if (hazardUpper.includes('RADIOACTIVE')) return 'RADIOACTIVE';
-    
-    return hazard;
+    // Enhanced categorization with more patterns
+    if (/(CONV|TS|CB|TSTMS|THUNDER)/.test(hazardUpper)) return 'CONVECTIVE';
+    if (/(TURB|CAT)/.test(hazardUpper)) return 'TURBULENCE';
+    if (/(ICE|ICING)/.test(hazardUpper)) return 'ICING';
+    if (/(ASH|VOLC|VA)/.test(hazardUpper)) return 'VOLCANIC_ASH';
+    if (/(TROPICAL|CYCLONE|TC)/.test(hazardUpper)) return 'TROPICAL_CYCLONE';
+    if (/(DUST|SAND|DS)/.test(hazardUpper)) return 'DUST';
+    if (/(RADIOACTIVE|RDOACT)/.test(hazardUpper)) return 'RADIOACTIVE';
+    if (/(MTW|MOUNTAIN|WAVE)/.test(hazardUpper)) return 'MOUNTAIN_WAVE';
+
+    // Return the original hazard value if no specific category matches
+    return hazardUpper;
+  }
+
+  /**
+   * Enhanced phenomenon detection from properties
+   * @param {object} properties - Feature properties
+   * @returns {string} Detected phenomenon
+   */
+  static coercePhenomenon(properties = {}) {
+    const raw =
+      properties.phenomenon ||
+      properties.hazard ||
+      properties.hazard_type ||
+      properties.sigmet_type ||
+      properties.sigmetType ||
+      properties.advisoryType ||
+      properties.advisory_type ||
+      properties.phenomenon_type ||
+      properties.hazardType ||
+      '';
+
+    return this.categorizePhenomenon(raw);
   }
 
   /**
@@ -309,41 +383,85 @@ class ISIGMETFetcher {
 
   const properties = feature.properties || {};
 
-  // Generate a fallback ID if missing
-  if (!properties.id) {
-    properties.id = `isigmet_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  // Debug: Log first entry to see structure
+  if (process.env.NODE_ENV === 'development' && !ISIGMETFetcher.firstDebugDone) {
+    ISIGMETFetcher.firstDebugDone = true;
+    console.log('=== ISIGMET DEBUG FIRST ENTRY ===');
+    console.log('Keys:', Object.keys(properties));
+    console.log('Hazard value:', properties.hazard);
+    console.log('Phenomenon value:', properties.phenomenon);
+    console.log('Has hazard property:', 'hazard' in properties);
+    console.log('Hazard type:', typeof properties.hazard);
   }
 
-  const requiredProps = ['hazard', 'validTimeFrom', 'validTimeTo'];
+  const requiredProps = ['validTimeFrom', 'validTimeTo'];
     const missingProp = requiredProps.find(prop => properties[prop] === undefined || properties[prop] === null);
     if (missingProp) {
-      console.warn('Skipping ISIGMET feature due to missing property:', missingProp);
+      const tempId = properties.id ||
+                     properties.sigmet_id ||
+                     properties.icaoId ||
+                     `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      console.warn('Skipping ISIGMET feature due to missing property:', missingProp, 'feature temp id:', tempId);
       return null;
     }
 
-    if (!isValidGeometry(feature.geometry)) {
-      console.warn('Skipping ISIGMET feature due to invalid geometry:', properties.id);
-      return null;
+    // Try to coerce geometry to polygon (handles LineString corridors)
+    let geometry = feature.geometry;
+    const originalGeomType = geometry?.type;
+
+    if (!isValidGeometry(geometry)) {
+      // Try geometry coercion for LineString/MultiLineString corridors
+      const coercedGeometry = coerceGeometryToPolygon(geometry);
+      if (coercedGeometry && isValidGeometry(coercedGeometry)) {
+        geometry = coercedGeometry;
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`ISIGMET geometry coerced: ${originalGeomType} → ${geometry.type}`);
+        }
+      } else {
+        const tempId = properties.id ||
+                       properties.sigmet_id ||
+                       properties.icaoId ||
+                       `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        console.warn('Skipping ISIGMET feature due to invalid geometry:', tempId, 'type:', originalGeomType);
+        return null;
+      }
     }
 
-  const validFrom = this.normalizeValidTime(properties.validTimeFrom, 'validTimeFrom', properties.id);
-  const validTo = this.normalizeValidTime(properties.validTimeTo, 'validTimeTo', properties.id);
+  // Generate an ID for this feature if it doesn't have one
+  const featureId = properties.id ||
+                    properties.sigmet_id ||
+                    properties.icaoId ||
+                    `isigmet_${properties.firId || 'unknown'}_${properties.seriesId || Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  const validFrom = this.normalizeValidTime(properties.validTimeFrom, 'validTimeFrom', featureId);
+  const validTo = this.normalizeValidTime(properties.validTimeTo, 'validTimeTo', featureId);
 
     if (!validFrom || !validTo) {
-      console.warn('Skipping ISIGMET feature due to invalid valid time range:', properties.id);
+      console.warn('Skipping ISIGMET feature due to invalid valid time range:', featureId);
       return null;
+    }
+
+    // Use enhanced phenomenon detection that never returns undefined
+    const categorizedPhenomenon = this.coercePhenomenon(properties);
+    if (process.env.NODE_ENV === 'development') {
+      console.debug('ISIGMET categorization debug:', {
+        id: featureId,
+        hazardValue: properties.hazard,
+        categorizedPhenomenon,
+        type: typeof categorizedPhenomenon
+      });
     }
 
     return {
-      id: properties.id,
+      id: featureId,
       type: 'ISIGMET',
-      phenomenon: this.categorizePhenomenon(properties.hazard),
+      phenomenon: categorizedPhenomenon,
       severity: properties.severity || 'UNKNOWN',
       validFrom,
       validTo,
       altitudeLow: properties.altitudeLow1,
       altitudeHigh: properties.altitudeHigh1,
-      geometry: feature.geometry,
+      geometry: geometry,
       fir: properties.fir,
       rawText: properties.rawIntlSigmet || properties.rawText
     };

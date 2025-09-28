@@ -11,28 +11,38 @@
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "test": "vitest",
+    "test:unit": "vitest --run",
+    "test:coverage": "vitest --coverage --run",
+    "test:watch": "vitest --watch",
+    "test:openweathermap": "vitest --run test/components/WeatherMap.test.jsx",
     "health": "curl -f http://localhost:3000 || echo 'Frontend not running'",
     "validate-env": "node -e \"require('dotenv').config(); const required = ['VITE_API_BASE_URL', 'VITE_ENV']; const missing = required.filter(key => !process.env[key]); if (missing.length) { console.error('Missing required environment variables:', missing.join(', ')); process.exit(1); } console.log('Frontend environment variables validated successfully');\"",
     "postinstall": "node -e \"(async()=>{try{await import('vite');await import('react');console.log('Critical frontend dependencies loaded successfully');}catch(e){console.warn('Warning: Critical frontend dependencies could not be loaded:',e.message)}})();\"",
-    "clean": "rimraf node_modules package-lock.json"
+    "clean": "rimraf node_modules package-lock.json",
+    "health:check": "node -e \"const ServiceHealthCheckers = require('../service-health-checkers.js'); const checkers = new ServiceHealthCheckers(); checkers.checkAllServices().then(results => console.log('Frontend services:', JSON.stringify(results, null, 2)));\"",
+    "health:frontend": "node -e \"const ServiceHealthCheckers = require('../service-health-checkers.js'); const checkers = new ServiceHealthCheckers(); checkers.checkFrontendHealth().then(result => console.log('Frontend service:', JSON.stringify(result, null, 2)));\"",
+    "health:owm": "node -e \"const ServiceHealthCheckers = require('../service-health-checkers.js'); const checkers = new ServiceHealthCheckers(); checkers.checkOpenWeatherMapHealth().then(result => console.log('OpenWeatherMap service:', JSON.stringify(result, null, 2)));\"",
+    "health:openmeteo": "node -e \"const ServiceHealthCheckers = require('../service-health-checkers.js'); const checkers = new ServiceHealthCheckers(); checkers.checkOpenMeteoHealth().then(result => console.log('Open-Meteo service:', JSON.stringify(result, null, 2)));\"",
+    "environment:check": "node -e \"const EnvironmentValidator = require('../environment-validator.js'); const validator = new EnvironmentValidator(); validator.validateEnvironmentVariables('frontend').then(result => console.log('Frontend environment:', JSON.stringify(result, null, 2)));\"",
+    "performance:check": "node -e \"const PerformanceMonitor = require('../performance-monitor.js'); const monitor = new PerformanceMonitor(); monitor.collectMetrics().then(metrics => console.log('Frontend performance:', JSON.stringify(metrics.network, null, 2)));\""
   },
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
     "axios": "^1.6.0",
-    "lucide-react": "^0.292.0",
-    "react-leaflet": "^4.2.1",
     "leaflet": "^1.9.4",
     "leaflet-defaulticon-compatibility": "^0.1.2",
-    "recharts": "^2.8.0",
-    "react-loading-skeleton": "^3.3.1"
+    "lucide-react": "^0.292.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-leaflet": "^4.2.1",
+    "react-loading-skeleton": "^3.3.1",
+    "recharts": "^2.8.0"
   },
   "devDependencies": {
-    "@types/react": "^18.2.37",
-    "@types/react-dom": "^18.2.15",
     "@testing-library/jest-dom": "^6.1.4",
     "@testing-library/react": "^14.1.2",
     "@testing-library/user-event": "^14.5.1",
+    "@types/react": "^18.2.37",
+    "@types/react-dom": "^18.2.15",
     "@vitejs/plugin-react": "^4.1.1",
     "autoprefixer": "^10.4.16",
     "dotenv": "^16.3.1",
@@ -45,8 +55,8 @@
     "prettier": "^3.0.3",
     "rimraf": "^5.0.5",
     "tailwindcss": "^3.3.5",
-    "vite": "^4.5.0",
-    "vitest": "^0.34.6"
+    "vite": "^7.1.7",
+    "vitest": "^3.2.4"
   },
   "browserslist": {
     "production": [

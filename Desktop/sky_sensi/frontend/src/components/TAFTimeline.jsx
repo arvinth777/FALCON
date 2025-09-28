@@ -110,6 +110,22 @@ const TAFTimeline = ({ tafData = [], className = '', height = 320 }) => {
       </div>
 
       <div className="p-4">
+        {/* Summary statistics */}
+        <div className="mb-4 grid grid-cols-3 gap-4 text-sm text-gray-700">
+          <div>
+            <span className="font-medium">Total Period:</span>{' '}
+            <span>{Math.round(timeExtent.duration / (1000 * 60 * 60))}h</span>
+          </div>
+          <div>
+            <span className="font-medium">Forecast Periods:</span>{' '}
+            <span>{airports.reduce((total, airport) => total + airport.timeline.length, 0)}</span>
+          </div>
+          <div>
+            <span className="font-medium">Changes:</span>{' '}
+            <span>{Math.max(0, airports.reduce((total, airport) => total + airport.timeline.length - 1, 0))}</span>
+          </div>
+        </div>
+
         <div className="mb-4 flex flex-wrap items-center gap-4 text-xs text-gray-700">
           <span className="font-medium">Category legend:</span>
           {Object.entries(CATEGORY_COLORS).map(([category, color]) => (

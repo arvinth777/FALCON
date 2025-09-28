@@ -52,9 +52,6 @@ const ReliabilityCalculator = require('../utils/reliabilityCalculator');
 const { normalizeTimestamp, normalizeTimestampFields } = require('../utils/timestampUtils');
 const { isValidGeometry } = require('../utils/geo');
 const { limitConcurrency } = require('../utils/awcClient');
-const { buildRouteCorridor, filterGeoJSONByPolygon } = require('../utils/corridor');
-const { summarizeCorridor } = require('../utils/corridorSummary');
-const { ensureFeatureCollection } = require('../utils/geojson');
 
 const FILTER_SIGMETS_BY_BBOX = process.env.FILTER_SIGMETS_BY_BBOX === 'true';
 
@@ -95,11 +92,29 @@ const normalizeWindSnapshot = (wind) => {
   };
 };
 
+// Service degradation tracking
+const serviceDegradations = new Map();
+
 function safeRequire(modulePath, fallbackFactory) {
   try {
     return require(modulePath);
   } catch (error) {
-    console.warn(`Optional module '${modulePath}' not loaded: ${error.message}`);
+    const serviceName = modulePath.split('/').pop();
+    const degradation = {
+      service: serviceName,
+      module: modulePath,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+      isCritical: ['metar', 'taf'].includes(serviceName) // Critical services for aviation
+    };
+
+    serviceDegradations.set(serviceName, degradation);
+
+    console.error(`🚨 SERVICE DEGRADATION: ${serviceName} failed to load - ${error.message}`);
+    if (degradation.isCritical) {
+      console.error(`⚠️  CRITICAL: This affects essential weather data availability`);
+    }
+
     return fallbackFactory();
   }
 }
@@ -122,7 +137,6 @@ class BriefingService {
 
       // Step 1: Fetch airport data in parallel
       console.log('Fetching airport data (METAR & TAF)...');
-
       const [metarData, tafData] = await Promise.all([
         METARFetcher.fetchMETAR(icaoCodes),
         TAFFetcher.fetchTAF(icaoCodes)
@@ -135,115 +149,22 @@ class BriefingService {
       let pirepData = [];
     let sigmetData = [];
     let isigmetData = [];
-    let isigmetFC = null;
     let isigmetFilterStats = { before: 0, after: 0 };
-    let corridor = null;
 
       if (coordinates.length > 0) {
         bbox = BoundingBox.calculateAndFormat(coordinates);
         console.log(`Route bounding box: ${bbox}`);
 
-        // Step 2.5: Build route corridor if we have coordinates with lat/lon
-        const airportsWithCoords = coordinates.map(coord => ({
-          lat: coord.lat,
-          lon: coord.lon,
-          icao: coord.icao
-        }));
-
-        if (airportsWithCoords.length >= 2) {
-          try {
-            const corridorPolygon = buildRouteCorridor(airportsWithCoords, { widthNm: 100, sampleNm: 20 });
-            corridor = {
-              widthNm: 100,
-              polygon: corridorPolygon
-            };
-            console.log('Route corridor generated successfully');
-          } catch (error) {
-            console.warn('Failed to build route corridor, falling back to bounding box:', error.message);
-            corridor = null;
-          }
-        }
-
-        // Step 3: Fetch hazard data in parallel (now that we have coordinates)
+        // Step 3: Fetch hazard data in parallel
         console.log('Fetching hazard data (PIREP, SIGMET, ISIGMET)...');
-        const [fetchedPirep, fetchedSigmet, fetchedIsigmet] = await Promise.all([
+        [pirepData, sigmetData, isigmetData] = await Promise.all([
           PIREPFetcher.fetchPIREP(bbox),
           SIGMETFetcher.fetchSIGMET(bbox),
           ISIGMETFetcher.fetchISIGMET(bbox)
         ]);
 
-        // Assign the fetched data to the pre-declared variables
-        pirepData = fetchedPirep;
-        sigmetData = fetchedSigmet;
-        isigmetFC = fetchedIsigmet;
-
-        // Extract features from ISIGMET FeatureCollection and convert to old format for compatibility
-        isigmetData = (isigmetFC?.features || []).map(feature => ({
-          ...feature.properties,
-          geometry: feature.geometry,
-          id: feature.id
-        }));
-
         isigmetFilterStats.before = isigmetData.length;
 
-        // Step 3.5: Apply corridor filtering if available
-        if (corridor && corridor.polygon) {
-        try {
-            console.log('Applying corridor filtering...');
-            console.log(`SIGMETs before corridor filtering: ${sigmetData.length}`);
-            console.log(`ISIGMETs before corridor filtering: ${isigmetData.length}`);
-            console.log(`PIREPs before corridor filtering: ${pirepData.length}`);
-
-            // Convert to GeoJSON for filtering
-            const sigmetGeoJSON = { type: 'FeatureCollection', features: sigmetData };
-            // Use the normalized ISIGMET FeatureCollection directly
-            const isigmetGeoJSON = isigmetFC || { type: 'FeatureCollection', features: [] };
-
-            // Filter by corridor
-            const filteredSigmetGeoJSON = filterGeoJSONByPolygon(sigmetGeoJSON, corridor.polygon);
-            const filteredIsigmetGeoJSON = filterGeoJSONByPolygon(isigmetGeoJSON, corridor.polygon);
-
-            // Filter PIREPs by corridor (convert to GeoJSON)
-            const pirepGeoJSON = {
-              type: 'FeatureCollection',
-              features: pirepData.map(pirep => ({
-                type: 'Feature',
-                geometry: { type: 'Point', coordinates: [pirep.lon, pirep.lat] },
-                properties: pirep
-              }))
-            };
-            const filteredPirepGeoJSON = filterGeoJSONByPolygon(pirepGeoJSON, corridor.polygon);
-
-            // Check if corridor filtering removed everything - if so, fall back to original data
-            const corridorSigmetCount = filteredSigmetGeoJSON.features.length;
-            const corridorIsigmetCount = filteredIsigmetGeoJSON.features.length;
-            const corridorPirepCount = filteredPirepGeoJSON.features.length;
-
-            const originalTotal = sigmetData.length + isigmetData.length + pirepData.length;
-            const filteredTotal = corridorSigmetCount + corridorIsigmetCount + corridorPirepCount;
-
-            // If corridor filtering removed more than 90% of hazards, fall back to bounding box filtering
-            if (originalTotal > 0 && (filteredTotal / originalTotal) < 0.1) {
-              console.warn('Corridor filtering too restrictive, falling back to bounding box filtering');
-              // Keep original data (already filtered by bounding box)
-              // isigmetFC is already set to the original normalized FeatureCollection
-            } else {
-              // Apply corridor filtered results
-              sigmetData = filteredSigmetGeoJSON.features;
-              isigmetData = filteredIsigmetGeoJSON.features.map(feature => feature.properties);
-              isigmetFC = filteredIsigmetGeoJSON; // Update the FeatureCollection too
-              pirepData = filteredPirepGeoJSON.features.map(feature => feature.properties);
-            }
-
-            console.log(`SIGMETs after corridor filtering: ${sigmetData.length}`);
-            console.log(`ISIGMETs after corridor filtering: ${isigmetData.length}`);
-            console.log(`PIREPs after corridor filtering: ${pirepData.length}`);
-          } catch (error) {
-            console.warn('Corridor filtering failed, using original data:', error.message);
-          }
-        }
-
-        // Apply bounding box filtering
         const bboxInfo = this.parseBoundingBox(bbox);
         if (bboxInfo) {
           const bboxSegments = Array.isArray(bboxInfo.segments) ? bboxInfo.segments : [];
@@ -253,37 +174,22 @@ class BriefingService {
             sigmetData = this.filterHazardsByBBox(sigmetData, bboxInfo);
             console.log('SIGMETs after bbox filtering:', sigmetData.length);
           }
-          // Use lenient ISIGMET bounding box filtering for better coverage
-          console.log('ISIGMETs before bbox filtering:', isigmetData.length);
-          // For ISIGMETs, use a much more lenient filtering approach
-          // since they often cover very large areas
-          const filteredISIGMETs = isigmetData; // Keep all for now to test frontend
-          console.log('ISIGMETs after bbox filtering:', filteredISIGMETs.length, '(lenient filtering)');
-
+          // TEMPORARILY DISABLE ISIGMET FILTERING TO TEST DISPLAY
+          console.log('TEMP: Skipping ISIGMET bbox filtering for debugging');
           const clampTarget = bboxInfo.isDatelineWrapped ? null : bboxSegments[0];
-          isigmetData = filteredISIGMETs.map(isigmet => ({
+          isigmetData = isigmetData.map(isigmet => ({
             ...isigmet,
             clippedGeometry: isigmet.geometry && clampTarget
               ? this.clampGeometryToBBox(isigmet.geometry, clampTarget)
               : isigmet.geometry || null
           }));
-
-          // Update the FeatureCollection to match the filtered data
-          if (isigmetFC) {
-            const filteredIds = new Set(isigmetData.map(item => item.id));
-            isigmetFC = {
-              type: 'FeatureCollection',
-              features: isigmetFC.features.filter(feature => filteredIds.has(feature.id))
-            };
-          }
-
           isigmetFilterStats.after = isigmetData.length;
         } else {
           isigmetFilterStats.after = isigmetFilterStats.before;
         }
-    } else {
-      console.warn('No coordinates available - skipping hazard data fetch');
-    }
+      } else {
+        console.warn('No coordinates available - skipping hazard data fetch');
+      }
 
       // Step 4: Process and normalize data
       console.log('Processing and normalizing data...');
@@ -293,11 +199,9 @@ class BriefingService {
         tafData,
         pirepData,
         sigmetData,
-        isigmetFC,
         isigmetData,
         bbox,
-        isigmetFilterStats,
-        corridor
+        isigmetFilterStats
       });
 
       // Step 5: Integrate Open-Meteo data when coordinates are available
@@ -330,7 +234,17 @@ class BriefingService {
 
         console.log('AI insights successfully integrated');
       } catch (error) {
-        console.warn('AI insights generation failed, continuing without:', error.message);
+        console.error('🤖 AI INSIGHTS UNAVAILABLE:', error.message);
+
+        // Track AI service degradation
+        serviceDegradations.set('ai', {
+          service: 'ai',
+          module: 'geminiService',
+          error: error.message,
+          timestamp: new Date().toISOString(),
+          isCritical: false
+        });
+
         processedData.aiSummary = {
           routeSummary: `Route ${icaoCodes.join(',')} - AI analysis unavailable`,
           keyFindings: ['AI analysis temporarily unavailable - manual review recommended'],
@@ -342,9 +256,33 @@ class BriefingService {
             rationale: 'Standard altitude - AI analysis unavailable',
             confidence: 'LOW'
           },
-          generatedAt: new Date().toISOString()
+          generatedAt: new Date().toISOString(),
+          error: `AI service failed: ${error.message}`
         };
       }
+
+    // Add service degradation information to response
+    const degradations = Array.from(serviceDegradations.values());
+    if (degradations.length > 0) {
+      processedData.serviceDegradations = {
+        count: degradations.length,
+        critical: degradations.filter(d => d.isCritical).length,
+        services: degradations,
+        hasCriticalFailures: degradations.some(d => d.isCritical),
+        message: degradations.some(d => d.isCritical)
+          ? 'CRITICAL: Essential weather services unavailable - briefing may be incomplete'
+          : 'Some optional services unavailable - reduced functionality'
+      };
+
+      // Log critical service failures
+      const criticalFailures = degradations.filter(d => d.isCritical);
+      if (criticalFailures.length > 0) {
+        console.error(`🚨 BRIEFING CONTAINS CRITICAL SERVICE FAILURES:`);
+        criticalFailures.forEach(failure => {
+          console.error(`  - ${failure.service}: ${failure.error}`);
+        });
+      }
+    }
 
     const normalizedResponse = this.normalizeResponseTimestamps(processedData);
 
@@ -397,7 +335,7 @@ class BriefingService {
    * @returns {object} Normalized briefing response
    */
   static processAndNormalize(data) {
-    const { icaoCodes, metarData, tafData, pirepData, sigmetData, bbox, isigmetFilterStats, corridor, isigmetFC } = data;
+    const { icaoCodes, metarData, tafData, pirepData, sigmetData, bbox, isigmetFilterStats } = data;
     let { isigmetData } = data;
 
     const filterStats = isigmetFilterStats || {
@@ -450,12 +388,6 @@ class BriefingService {
       const rawTafBlocks = Array.isArray(taf?.forecastBlocks) ? taf.forecastBlocks : [];
 
       if (rawTafBlocks.length > 0) {
-        // Ensure every returned block has ISO UTC start and end
-        const toISO = (t) => {
-          const ms = typeof t === 'number' ? t * 1000 : Date.parse(t);
-          return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
-        };
-
         tafForecasts = rawTafBlocks.map((block, index) => {
           const normalizedBlock = normalizeTimestampFields(block, ['validFrom', 'validTo', 'startTime', 'endTime', 'start', 'end'], {
             context: `TAF:${taf.icao}.forecastBlocks[${index}]`
@@ -471,8 +403,8 @@ class BriefingService {
 
           return {
             ...normalizedBlock,
-            start: toISO(derivedStart),
-            end: toISO(derivedEnd),
+            start: derivedStart,
+            end: derivedEnd,
             startTime: derivedStart,
             endTime: derivedEnd,
             validFrom: derivedStart,
@@ -551,22 +483,6 @@ class BriefingService {
         currentBlockIndex: -1
       };
 
-      // Always set airport.taf and airport.flightTimeline, never throw if blocks empty
-      const finalTafSummary = tafSummary || {
-        icao,
-        issueTime: null,
-        validTimeFrom: null,
-        validTimeTo: null,
-        rawTAF: null,
-        forecastBlocks: [],
-        blocks: [],
-        currentBlock: null,
-        currentBlockIndex: -1
-      };
-
-      finalTafSummary.blocks = tafForecasts;
-      finalTafSummary.flightTimeline = flightTimeline;
-
       return {
         icao,
         icaoCode: icao,
@@ -577,7 +493,7 @@ class BriefingService {
         flightCategory: metar?.flightCategory,
         hasMetar: !!metar,
         hasTaf: !!taf,
-        taf: finalTafSummary,
+        taf: tafSummary,
         tafForecasts,
         flightTimeline,
         forecastComparison,
@@ -618,26 +534,8 @@ class BriefingService {
       }
     };
 
-    // Generate corridor summary
-    let corridorSummary = null;
-    if (corridor) {
-      try {
-        corridorSummary = summarizeCorridor({
-          airports: airports,
-          metarsByIcao: metarsByIcao,
-          sigmets: { type: 'FeatureCollection', features: hazards.sigmets.active },
-          isigmets: { type: 'FeatureCollection', features: hazards.isigmets.active },
-          pireps: hazards.pireps.recent
-        });
-        console.log('Corridor summary generated successfully');
-      } catch (error) {
-        console.warn('Failed to generate corridor summary:', error.message);
-        corridorSummary = null;
-      }
-    }
-
     // Build response
-    const response = {
+    return {
       generatedAt: new Date().toISOString(),
       route: icaoCodes.join(','),
       boundingBox: bbox,
@@ -645,9 +543,9 @@ class BriefingService {
       metarsByIcao,
       tafsByIcao,
       hazards,
-      // Add root-level arrays for frontend compatibility
+      // Add root-level arrays for frontend compatibility (including ISIGMETs)
       sigmets: hazards.sigmets.active,
-      isigmets: ensureFeatureCollection(isigmetFC), // ALWAYS a FeatureCollection, never null
+      isigmets: hazards.isigmets.active,
       pireps: hazards.pireps.recent,
       weatherAlerts: hazards.sigmets.active.concat(hazards.isigmets.active),
       windsAloft: [], // Empty for now, can be populated later
@@ -672,16 +570,6 @@ class BriefingService {
         }
       }
     };
-
-    // Add corridor data if available
-    if (corridor) {
-      response.corridor = corridor;
-    }
-    if (corridorSummary) {
-      response.corridorSummary = corridorSummary;
-    }
-
-    return response;
   }
 
   static async fetchOpenMeteoForecasts(airports) {

@@ -25,11 +25,43 @@
     "backend:start": "npm run start --prefix backend",
     "frontend:preview": "npm run preview --prefix frontend",
     "dev": "concurrently \"npm:backend:dev\" \"npm:frontend:dev\"",
-    "start": "concurrently \"npm:backend:start\" \"npm:frontend:preview\""
+    "start": "concurrently \"npm:backend:start\" \"npm:frontend:preview\"",
+    "test:all": "node test-runner.js",
+    "test:unit": "node test-runner.js --suite backend && node test-runner.js --suite frontend",
+    "test:backend": "node test-runner.js --suite backend",
+    "test:frontend": "node test-runner.js --suite frontend",
+    "test:integration": "node test-runner.js --suite integration",
+    "test:weather-services": "node test-runner.js --suite weather-services",
+    "test:coverage": "node test-runner.js --coverage",
+    "test:report": "node test-runner.js && open test-reports/index.html",
+    "test:watch": "npm-run-all --parallel backend:test:watch frontend:test:watch",
+    "backend:test:watch": "npm run test:watch --prefix backend",
+    "frontend:test:watch": "npm run test:watch --prefix frontend",
+    "health:check": "node verify-setup.js --mode comprehensive",
+    "health:quick": "node verify-setup.js --mode quick",
+    "health:monitor": "node verify-setup.js --mode continuous",
+    "health:report": "node verify-setup.js --report detailed",
+    "health:summary": "node verify-setup.js --report summary",
+    "health:performance": "node verify-setup.js --report performance",
+    "performance:monitor": "node -e \"const PerformanceMonitor = require('./performance-monitor.js'); const monitor = new PerformanceMonitor(); monitor.startMonitoring(); console.log('Performance monitoring started. Press Ctrl+C to stop.');\"",
+    "performance:report": "node -e \"const PerformanceMonitor = require('./performance-monitor.js'); const monitor = new PerformanceMonitor(); monitor.collectMetrics().then(metrics => console.log(JSON.stringify(metrics, null, 2)));\"",
+    "dependencies:validate": "node -e \"const DependencyValidator = require('./dependency-validator.js'); const validator = new DependencyValidator(); validator.validateDependencies().then(result => console.log(JSON.stringify(result, null, 2)));\"",
+    "dependencies:fix": "node -e \"const DependencyValidator = require('./dependency-validator.js'); const validator = new DependencyValidator(); validator.validateDependencies().then(validation => validator.autoFixIssues(validation)).then(fixes => console.log(JSON.stringify(fixes, null, 2)));\"",
+    "environment:validate": "node -e \"const EnvironmentValidator = require('./environment-validator.js'); const validator = new EnvironmentValidator(); validator.validateEnvironments().then(result => console.log(JSON.stringify(result, null, 2)));\"",
+    "environment:setup": "node -e \"const EnvironmentValidator = require('./environment-validator.js'); const validator = new EnvironmentValidator(); validator.createMissingEnvFiles().then(result => console.log(JSON.stringify(result, null, 2)));\"",
+    "troubleshoot": "node -e \"const AutomatedTroubleshooter = require('./automated-troubleshooter.js'); const troubleshooter = new AutomatedTroubleshooter(); console.log('Starting automated troubleshooting...');\"",
+    "troubleshoot:execute": "node -e \"const AutomatedTroubleshooter = require('./automated-troubleshooter.js'); const troubleshooter = new AutomatedTroubleshooter(); console.log('Executing automated repairs...');\"",
+    "troubleshoot:dry-run": "node -e \"const AutomatedTroubleshooter = require('./automated-troubleshooter.js'); const troubleshooter = new AutomatedTroubleshooter(); console.log('Dry run mode - showing potential fixes...');\""
   },
   "devDependencies": {
-    "concurrently": "^8.2.2",
-    "kill-port": "^2.0.1",
-    "rimraf": "^5.0.5"
+    "c8": "^8.0.1",
+    "commander": "^11.1.0",
+    "concurrently": "^8.2.0",
+    "npm-run-all": "^4.1.5",
+    "rimraf": "^5.0.1"
+  },
+  "dependencies": {
+    "axios": "^1.12.2",
+    "semver": "^7.7.2"
   }
 }

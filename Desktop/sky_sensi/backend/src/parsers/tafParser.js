@@ -6,16 +6,6 @@
 
 class TAFParser {
   /**
-   * Normalize timestamps to ISO format
-   * @param {*} t - Timestamp value (number, string, or Date)
-   * @returns {string|null} ISO string or null if invalid
-   */
-  static toISO(t) {
-    const ms = typeof t === 'number' ? t * 1000 : Date.parse(t);
-    return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
-  }
-
-  /**
    * Parse raw TAF string into structured forecast blocks
    * @param {string} rawTAF - Raw TAF string from AWC API
    * @returns {Array} Array of forecast blocks with time periods and conditions
@@ -75,24 +65,9 @@ class TAFParser {
       this.fillBlockTimings(detailedBlocks, validPeriod, baseTime);
 
       const forecastBlocks = this.buildTimelineBlocks(detailedBlocks, validPeriod);
-      let blocks = forecastBlocks.length > 0
+      const blocks = forecastBlocks.length > 0
         ? forecastBlocks
-        : [];
-
-      // If no blocks parsed but taf.validFrom/validTo exist, return one fallback block
-      if (blocks.length === 0 && validPeriod?.start && validPeriod?.end) {
-        blocks = [{
-          start: this.toISO(validPeriod.start),
-          end: this.toISO(validPeriod.end),
-          category: 'UNKNOWN',
-          visibilitySM: null,
-          ceilingFT: null,
-          wind: { dir: null, spd: null, gst: null },
-          raw: null,
-          sourceType: 'FALLBACK',
-          probability: null
-        }];
-      }
+        : this.buildFallbackTimeline(validPeriod, baseTime);
 
       const currentBlockIndex = this.getActivePrimaryBlockIndex(blocks);
 

@@ -31,6 +31,15 @@ Frontend (React/Vue) ←→ Backend (Node.js/Express) ←→ Aviation Weather Ce
 - Chat interface for weather questions
 - Altitude recommendation system
 
+### ✅ Comprehensive Test Infrastructure (Phase 3 - Complete)
+- Unified test orchestration system with CLI interface
+- Backend testing with Node.js test runner and c8 coverage
+- Frontend testing with Vitest and jsdom environment
+- Enhanced integration testing with weather service validation
+- Centralized test reporting with HTML/JSON outputs
+- Coverage thresholds and automated quality gates
+- CI/CD ready test scripts and reporting
+
 ## Quick Start
 
 ### Prerequisites
@@ -190,6 +199,34 @@ POST /api/ai/chat
 }
 ```
 
+## Comprehensive Test Infrastructure
+
+The project includes a robust testing framework with unified test orchestration:
+
+### Test Scripts
+- `npm test` - Run all test suites (backend, frontend, integration)
+- `npm run test:backend` - Backend tests with c8 coverage
+- `npm run test:frontend` - Frontend tests with Vitest
+- `npm run test:integration` - Enhanced integration tests
+- `npm run test:coverage` - Generate combined coverage reports
+- `npm run test:watch` - Watch mode for development
+- `npm run test:ci` - CI-optimized test run
+
+### Test Features
+- **Unified Orchestration:** Single command runs all test suites with coordinated reporting
+- **Coverage Analysis:** Line, branch, function, and statement coverage with configurable thresholds
+- **Weather Service Testing:** Validates OpenWeatherMap, Open-Meteo, and Aviation Weather Center integrations
+- **Performance Benchmarking:** Concurrent request testing and response time validation
+- **HTML Reports:** Visual test results with detailed failure analysis
+- **CI/CD Integration:** JSON reports and configurable exit codes
+
+### Test Configuration
+- Backend: Node.js test runner with c8 coverage (80% threshold)
+- Frontend: Vitest with jsdom environment (85% threshold)
+- Integration: Custom test runner with server lifecycle management
+- Coverage: Combined reports in `coverage/` directory
+- Reports: HTML and JSON outputs in `test-reports/` directory
+
 ## Data Sources
 
 ### Aviation Weather Center (AWC) APIs
@@ -231,6 +268,16 @@ backend/
 ├── package.json
 ├── .env.example
 └── README.md
+
+test-infrastructure/
+├── test-runner.js              # Unified test orchestration
+├── test-reporter.js            # Multi-format result reporting
+├── test-utils.js              # Shared test utilities
+├── test-integration-enhanced.js # Comprehensive integration tests
+├── test-config.json           # Centralized test configuration
+├── .c8rc.json                 # Backend coverage settings
+├── coverage/                  # Coverage reports and data
+└── test-reports/              # HTML and JSON test reports
 ```
 
 ## Development
@@ -238,7 +285,7 @@ backend/
 ### Available Scripts
 - `npm start` - Start production server
 - `npm run dev` - Start development server with auto-reload
-- `npm test` - Run tests (placeholder)
+- `npm test` - Run comprehensive test suite with reporting
 
 ### Environment Variables
 - `PORT` - Server port (default: 3001)

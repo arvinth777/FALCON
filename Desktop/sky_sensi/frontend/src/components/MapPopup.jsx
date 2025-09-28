@@ -247,12 +247,12 @@ const MapPopup = ({
     );
   }
 
-  // SIGMET popup content
-  if (type === 'sigmet' && sigmet) {
+  // SIGMET/ISIGMET popup content
+  if ((type === 'sigmet' || type === 'isigmet') && sigmet) {
     return (
       <div className="text-sm max-w-xs">
         <div className="font-bold text-base mb-2">
-          {sigmet.type || 'SIGMET'} - {sigmet.phenomenon || 'Weather Advisory'}
+          {type === 'isigmet' ? 'ISIGMET' : (sigmet.type || 'SIGMET')} - {sigmet.phenomenon || 'Weather Advisory'}
         </div>
         
         <div className="space-y-1">

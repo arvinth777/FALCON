@@ -1,0 +1,143 @@
+{
+  "testSuites": {
+    "backend": {
+      "framework": "node:test",
+      "testPattern": "**/*.test.js",
+      "rootDir": "./backend",
+      "timeout": 30000,
+      "coverage": {
+        "enabled": true,
+        "reporter": ["json", "text", "html"],
+        "reportsDir": "coverage/backend",
+        "exclude": [
+          "test/**",
+          "**/*.test.js",
+          "node_modules/**",
+          "coverage/**"
+        ],
+        "thresholds": {
+          "statements": 80,
+          "branches": 75,
+          "functions": 80,
+          "lines": 80
+        }
+      }
+    },
+    "frontend": {
+      "framework": "vitest",
+      "testPattern": "test/**/*.test.{js,jsx}",
+      "rootDir": "./frontend",
+      "timeout": 10000,
+      "coverage": {
+        "enabled": true,
+        "reporter": ["json", "html", "text"],
+        "reportsDir": "coverage/frontend",
+        "exclude": [
+          "node_modules/**",
+          "test/**",
+          "**/*.test.{js,jsx}",
+          "**/*.config.{js,ts}",
+          "coverage/**",
+          "dist/**"
+        ],
+        "thresholds": {
+          "statements": 85,
+          "branches": 80,
+          "functions": 85,
+          "lines": 85
+        }
+      }
+    },
+    "integration": {
+      "framework": "custom",
+      "testPattern": "test-integration-enhanced.js",
+      "rootDir": "./",
+      "timeout": 60000,
+      "serverConfig": {
+        "backend": {
+          "port": 3001,
+          "startCommand": "npm run dev",
+          "healthCheck": "http://localhost:3001/health"
+        },
+        "frontend": {
+          "port": 3000,
+          "startCommand": "npm run dev",
+          "healthCheck": "http://localhost:3000"
+        }
+      }
+    }
+  },
+  "weatherServices": {
+    "openWeatherMap": {
+      "testApiKey": true,
+      "testTileLoading": true,
+      "testLayerTypes": ["clouds", "precipitation", "wind", "temperature", "pressure", "snow"],
+      "requiredEnvVars": ["VITE_OWM_KEY"],
+      "timeout": 15000
+    },
+    "openMeteo": {
+      "testForecasting": true,
+      "testAviationEndpoints": true,
+      "testCaching": true,
+      "endpoints": [
+        "https://api.open-meteo.com/v1/forecast",
+        "https://api.open-meteo.com/v1/aviation"
+      ],
+      "timeout": 30000
+    }
+  },
+  "reporting": {
+    "formats": ["json", "html", "console"],
+    "outputDir": "./test-reports",
+    "includeHistorical": true,
+    "generateTrends": true,
+    "includeCoverage": true,
+    "failureAnalysis": {
+      "enabled": true,
+      "categorizeByType": true,
+      "includeStackTraces": true,
+      "generateInsights": true
+    }
+  },
+  "ci": {
+    "failOnCoverageThreshold": true,
+    "failOnTestFailures": true,
+    "generateArtifacts": true,
+    "uploadReports": false
+  },
+  "development": {
+    "watchMode": false,
+    "autoRerun": false,
+    "clearConsole": true,
+    "showNotifications": false
+  },
+  "performance": {
+    "parallel": {
+      "backend": false,
+      "frontend": true,
+      "integration": false
+    },
+    "maxWorkers": 4,
+    "timeout": {
+      "unit": 10000,
+      "integration": 60000
+    }
+  },
+  "environment": {
+    "required": [
+      "NODE_ENV",
+      "VITE_API_BASE_URL",
+      "VITE_ENV"
+    ],
+    "optional": [
+      "VITE_OWM_KEY",
+      "VITE_ENABLE_DEBUG_LOGS",
+      "GEMINI_API_KEY"
+    ],
+    "testDefaults": {
+      "NODE_ENV": "test",
+      "VITE_ENV": "test",
+      "VITE_ENABLE_DEBUG_LOGS": "false"
+    }
+  }
+}

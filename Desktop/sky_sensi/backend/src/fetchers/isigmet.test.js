@@ -99,14 +99,14 @@ sequentialTest('fetchISIGMET splits dateline-spanning bbox and caches unique mer
   const segmentStub = mock.method(ISIGMETFetcher, 'fetchGeoJsonSegment', async (segment) => {
     if (segment === '170,-10,180,10') {
       return [
-        { id: 'INTL-A' },
-        { id: 'INTL-B' }
+        { id: 'INTL-A', geometry: VALID_FEATURE.geometry },
+        { id: 'INTL-B', geometry: VALID_FEATURE.geometry }
       ];
     }
     if (segment === '-180,-10,-170,10') {
       return [
-        { id: 'INTL-B' },
-        { id: 'INTL-C' }
+        { id: 'INTL-B', geometry: VALID_FEATURE.geometry },
+        { id: 'INTL-C', geometry: VALID_FEATURE.geometry }
       ];
     }
 

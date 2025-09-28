@@ -53,17 +53,98 @@ A modern React frontend for the Sky Sensi aviation weather briefing system. This
 
 ## Environment Configuration
 
-Create a `.env` file based on `.env.example`:
+Create a `.env.local` file based on `.env.example`:
 
 ```bash
 # Backend API URL
-VITE_API_BASE_URL=http://localhost:5000/api
+VITE_API_BASE_URL=http://localhost:3001/api
 
 # Environment
 VITE_ENV=development
-# Optional: enables OpenWeatherMap cloud overlay on the route map
-VITE_OWM_KEY=your_openweather_api_key
+
+# OpenWeatherMap Integration
+VITE_OWM_KEY=your_openweather_api_key_here
 ```
+
+### OpenWeatherMap Integration Setup
+
+Sky Sensi includes interactive weather overlays powered by OpenWeatherMap. Follow these steps to enable weather layer functionality:
+
+#### 1. Obtain a Free API Key
+
+1. **Sign up for OpenWeatherMap:**
+   - Visit [https://openweathermap.org/api](https://openweathermap.org/api)
+   - Click "Sign Up" and create a free account
+   - Verify your email address
+
+2. **Generate your API key:**
+   - Log into your OpenWeatherMap account
+   - Navigate to the "API keys" section
+   - Copy your default API key (typically 32 characters long)
+   - Free tier keys work perfectly for development purposes
+
+#### 2. Configure Environment Variables
+
+1. **Add the API key to your local environment:**
+   ```bash
+   # In your .env.local file
+   VITE_OWM_KEY=75706f6d6424c82ed53bbcf3783eef2b
+   ```
+
+2. **Restart the development server:**
+   ```bash
+   # Stop the current dev server (Ctrl+C)
+   npm run dev
+   ```
+   
+   **Important:** You MUST restart the Vite development server after adding or modifying environment variables.
+
+#### 3. Available Weather Overlays
+
+The application supports multiple weather layer types that can be toggled on/off through the map controls:
+
+- **Clouds** - Cloud coverage and density
+- **Precipitation** - Rain, snow, and precipitation intensity  
+- **Wind** - Wind speed and direction patterns
+- **Temperature** - Surface temperature distribution
+- **Pressure** - Atmospheric pressure systems
+- **Snow** - Snow coverage and accumulation
+
+#### 4. Usage and Attribution
+
+- **Free Tier Limits:** OpenWeatherMap free accounts include 1,000 API calls per day
+- **Attribution:** Weather data attribution is automatically included in map overlays
+- **Data Updates:** Weather layers update every 10-30 minutes depending on the data type
+- **Coverage:** Global coverage with higher resolution in populated areas
+
+#### 5. Troubleshooting Weather Overlays
+
+**Weather overlays show "(set VITE_OWM_KEY)" instead of data:**
+- Verify your API key is correctly set in `.env.local`
+- Ensure you restarted the Vite dev server after adding the key
+- Check that your API key is at least 24 characters long
+- Verify the key doesn't have extra spaces or quotes
+
+**Weather tiles fail to load:**
+- Open browser Developer Tools (F12) and check the Network tab for errors
+- Look for 401 (unauthorized) or 403 (forbidden) responses indicating API key issues
+- Check for 429 (rate limit) responses if you've exceeded free tier limits
+- Verify your internet connection and firewall settings
+
+**Browser extension interference:**
+- Some ad blockers or privacy extensions may block weather tile requests
+- Try disabling browser extensions temporarily to test
+- Whitelist `tile.openweathermap.org` in your ad blocker if needed
+
+**Network connectivity issues:**
+- Ensure your network allows HTTPS requests to `tile.openweathermap.org`
+- Check corporate firewalls that might block external tile services
+- Test direct access to a weather tile URL in your browser
+
+**API key validation:**
+- New API keys may take up to 2 hours to become active
+- Verify your OpenWeatherMap account is in good standing
+- Check the API key hasn't been revoked or expired
 
 ## Component Architecture
 
@@ -187,6 +268,14 @@ src/
 - Confidence levels and data references in responses
 - Conversation history maintained during session
 
+### Weather Map Overlays
+- **Interactive weather layers** powered by OpenWeatherMap
+- **Multiple overlay types:** clouds, precipitation, wind, temperature, pressure, snow
+- **Real-time data** updated every 10-30 minutes
+- **Toggle controls** to enable/disable individual weather layers
+- **Zoom-dependent detail** with higher resolution at closer zoom levels
+- **Attribution display** for weather data sources and usage compliance
+
 ## Troubleshooting
 
 ### Common Issues
@@ -198,8 +287,15 @@ src/
 
 **API connection errors:**
 - Verify backend server is running on the correct port
-- Check `VITE_API_BASE_URL` in your `.env` file
+- Check `VITE_API_BASE_URL` in your `.env.local` file
 - Ensure CORS is properly configured in the backend
+
+**Weather overlay issues:**
+- Verify `VITE_OWM_KEY` is set correctly in `.env.local`
+- Restart the Vite dev server after modifying environment variables
+- Check browser Developer Tools Network tab for tile loading errors
+- Ensure OpenWeatherMap API key is active (may take up to 2 hours for new keys)
+- Disable browser extensions that might block external tile requests
 
 **Build errors:**
 - Run `npm run lint` to check for code issues

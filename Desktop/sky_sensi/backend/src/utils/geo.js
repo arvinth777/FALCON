@@ -1,3 +1,33 @@
+const { buffer } = require('@turf/buffer');
+const { lineString, multiLineString } = require('@turf/helpers');
+
+function coerceGeometryToPolygon(geom) {
+  if (!geom || !geom.type) return null;
+
+  // Already a polygon?
+  if (geom.type === 'Polygon' || geom.type === 'MultiPolygon') return geom;
+
+  // Try to buffer lines into a corridor polygon (≈ 10 km)
+  if (geom.type === 'LineString') {
+    try {
+      const ls = lineString(geom.coordinates);
+      const buf = buffer(ls, 10, { units: 'kilometers' });
+      return buf?.geometry || null;
+    } catch { return null; }
+  }
+
+  if (geom.type === 'MultiLineString') {
+    try {
+      const mls = multiLineString(geom.coordinates);
+      const buf = buffer(mls, 10, { units: 'kilometers' });
+      return buf?.geometry || null;
+    } catch { return null; }
+  }
+
+  // Points or unknown types: reject
+  return null;
+}
+
 function extractPoints(geometry) {
   if (!geometry || typeof geometry !== 'object') {
     return [];
@@ -60,5 +90,6 @@ function isValidGeometry(geometry) {
 }
 
 module.exports = {
-  isValidGeometry
+  isValidGeometry,
+  coerceGeometryToPolygon
 };

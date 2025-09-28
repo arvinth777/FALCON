@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, Polygon, GeoJSON, useMap, LayersControl } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, Polygon, useMap } from 'react-leaflet';
 import { divIcon } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-defaulticon-compatibility/dist/leaflet-defaulticon-compatibility.css';
@@ -75,7 +75,6 @@ const MapBoundsHandler = ({ bounds }) => {
 const WeatherMap = ({
   airports = [],
   sigmets = [],
-  isigmets = null,
   pireps = [],
   metarsByIcao = {},
   tafsByIcao = {},
@@ -86,7 +85,9 @@ const WeatherMap = ({
   showPireps = true,
   onAirportClick,
   onSigmetClick,
-  onPirepClick
+  onPirepClick,
+  // ⬇️ new
+  isigmets: isigmetsProp,
 }) => {
   // Requires VITE_OWM_KEY defined in frontend/.env.local
   const OWM_KEY = import.meta.env.VITE_OWM_KEY;
@@ -95,10 +96,10 @@ const WeatherMap = ({
   const [selectedLayers, setSelectedLayers] = useState({
     airports: showAirports,
     sigmets: showSigmets,
-    isigmets: false,
+    isigmets: true,
     pireps: showPireps,
     route: true,
-    clouds: false,
+    clouds: hasCloudLayer,
     precipitation: false,
     wind: false
   });
@@ -208,6 +209,60 @@ const WeatherMap = ({
     return generateRouteLineCoordinates(enrichedAirports);
   }, [enrichedAirports, selectedLayers.route]);
 
+  // ISIGMET helper functions
+  const coerceIsigmetFeatures = (src) => {
+    if (!src) return [];
+    if (Array.isArray(src)) return src;
+    if (src.type === 'FeatureCollection' && Array.isArray(src.features)) return src.features;
+    if (src.type === 'Feature') return [src];
+    return [];
+  };
+
+  const lonLatToLatLng = ([lon, lat]) =>
+    (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180)
+      ? [lat, lon]
+      : null;
+
+  const normalizeRing = (ring) => Array.isArray(ring)
+    ? ring.map(lonLatToLatLng).filter(Boolean)
+    : [];
+
+  const normalizePoly = (coords) =>
+    Array.isArray(coords)
+      ? coords.map(normalizeRing).filter(r => r.length >= 3)
+      : [];
+
+  // Build ISIGMET positions for rendering
+  const normalizedIsigmetPolygons = useMemo(() => {
+    if (!selectedLayers.isigmets) return [];
+    const feats = coerceIsigmetFeatures(isigmetsProp);
+    const out = [];
+    for (const f of feats) {
+      const g = f?.geometry;
+      if (!g?.type || !g?.coordinates) continue;
+      if (g.type === 'Polygon') {
+        const poly = normalizePoly(g.coordinates);
+        if (poly.length) out.push({ positions: poly, feature: f });
+      } else if (g.type === 'MultiPolygon') {
+        for (const part of g.coordinates) {
+          const poly = normalizePoly(part);
+          if (poly.length) out.push({ positions: poly, feature: f });
+        }
+      }
+    }
+    return out;
+  }, [isigmetsProp, selectedLayers.isigmets]);
+
+  // Debug logging for ISIGMET data flow
+  useEffect(() => {
+    if (import.meta.env?.VITE_ENABLE_DEBUG_LOGS === 'true') {
+      const raw = coerceIsigmetFeatures(isigmetsProp);
+      console.log('[ISIGMET] toggle:', selectedLayers.isigmets,
+                  '| raw features:', raw.length,
+                  '| polygons:', normalizedIsigmetPolygons.length);
+    }
+  }, [selectedLayers.isigmets, isigmetsProp, normalizedIsigmetPolygons]);
+
   const normalizePolygon = (polygon) => {
     if (!Array.isArray(polygon)) {
       return [];
@@ -282,26 +337,6 @@ const WeatherMap = ({
     return normalized;
   }, [sigmets, selectedLayers.sigmets]);
 
-  // ISIGMET styling and popup functions
-  const isigmetStyle = (feature) => {
-    const p = feature?.properties || {};
-    const phen = (p.phenomenon || p.hazard || "").toUpperCase();
-    let color = "#9146ff";
-    if (phen.includes("TURB")) color = "#f97316";
-    if (phen.includes("ICE"))  color = "#38bdf8";
-    if (phen.includes("CONV") || phen.includes("TS")) color = "#ef4444";
-    return { color, weight: 1, fillOpacity: 0.25, opacity: 0.9 };
-  };
-
-  const onEachISigmet = (feature, layer) => {
-    const p = feature?.properties || {};
-    const lines = [];
-    if (p.phenomenon) lines.push(`<b>${p.phenomenon}</b>`);
-    if (p.validTimeFrom && p.validTimeTo) lines.push(`Valid: ${p.validTimeFrom} → ${p.validTimeTo}`);
-    if (p.levelinfo || p.level) lines.push(`${p.levelinfo || p.level}`);
-    if (p._bufferedFrom === "LineString") lines.push("(Buffered line)");
-    layer.bindPopup(lines.join("<br>") || "ISIGMET");
-  };
 
   const MAX_PIREPS_BEFORE_CLUSTER = 100;
 
@@ -832,15 +867,48 @@ const WeatherMap = ({
           );
         })}
 
-        {/* ISIGMET Layer */}
-        {selectedLayers.isigmets && isigmets?.features?.length ? (
-          <GeoJSON
-            key={`isigmets-${isigmets.features.length}`}
-            data={isigmets}
-            style={isigmetStyle}
-            onEachFeature={onEachISigmet}
-          />
-        ) : null}
+        {/* ISIGMET Polygons */}
+        {selectedLayers.isigmets && normalizedIsigmetPolygons.map((item, idx) => (
+          <Polygon
+            key={`isigmet-${idx}`}
+            positions={item.positions}
+            pathOptions={{
+              color: '#7c3aed',       // stroke
+              weight: 2.5,
+              opacity: 0.9,
+              fillColor: '#7c3aed',   // fill
+              fillOpacity: 0.22,
+            }}
+            pane="overlayPane"
+            eventHandlers={{
+              click: () => {
+                const f = item.feature;
+                console.log("ISIGMET clicked:", f);
+                onSigmetClick?.(f);
+              }
+            }}
+          >
+            <Popup>
+              <div className="text-sm">
+                <div className="font-bold">{item.feature?.type || 'ISIGMET'}</div>
+                {item.feature?.phenomenon && (
+                  <div className="text-gray-600">Phenomenon: {item.feature.phenomenon}</div>
+                )}
+                {item.feature?.id && (
+                  <div className="text-gray-600">ID: {item.feature.id}</div>
+                )}
+                {item.feature?.validTimeFrom && item.feature?.validTimeTo && (
+                  <div className="text-gray-600">
+                    Valid: {item.feature.validTimeFrom} → {item.feature.validTimeTo}
+                  </div>
+                )}
+                {item.feature?.levelinfo && (
+                  <div className="text-gray-600">Level: {item.feature.levelinfo}</div>
+                )}
+              </div>
+            </Popup>
+          </Polygon>
+        ))}
 
         {/* PIREP Markers */}
         {selectedLayers.pireps && aggregatedPireps.map((pirep, index) => {
