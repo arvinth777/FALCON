@@ -52,6 +52,9 @@ const ReliabilityCalculator = require('../utils/reliabilityCalculator');
 const { normalizeTimestamp, normalizeTimestampFields } = require('../utils/timestampUtils');
 const { isValidGeometry } = require('../utils/geo');
 const { limitConcurrency } = require('../utils/awcClient');
+const { buildRouteCorridor, filterGeoJSONByPolygon } = require('../utils/corridor');
+const { summarizeCorridor } = require('../utils/corridorSummary');
+const { ensureFeatureCollection } = require('../utils/geojson');
 
 const FILTER_SIGMETS_BY_BBOX = process.env.FILTER_SIGMETS_BY_BBOX === 'true';
 
@@ -119,6 +122,7 @@ class BriefingService {
 
       // Step 1: Fetch airport data in parallel
       console.log('Fetching airport data (METAR & TAF)...');
+
       const [metarData, tafData] = await Promise.all([
         METARFetcher.fetchMETAR(icaoCodes),
         TAFFetcher.fetchTAF(icaoCodes)
@@ -131,22 +135,115 @@ class BriefingService {
       let pirepData = [];
     let sigmetData = [];
     let isigmetData = [];
+    let isigmetFC = null;
     let isigmetFilterStats = { before: 0, after: 0 };
+    let corridor = null;
 
       if (coordinates.length > 0) {
         bbox = BoundingBox.calculateAndFormat(coordinates);
         console.log(`Route bounding box: ${bbox}`);
 
-        // Step 3: Fetch hazard data in parallel
+        // Step 2.5: Build route corridor if we have coordinates with lat/lon
+        const airportsWithCoords = coordinates.map(coord => ({
+          lat: coord.lat,
+          lon: coord.lon,
+          icao: coord.icao
+        }));
+
+        if (airportsWithCoords.length >= 2) {
+          try {
+            const corridorPolygon = buildRouteCorridor(airportsWithCoords, { widthNm: 100, sampleNm: 20 });
+            corridor = {
+              widthNm: 100,
+              polygon: corridorPolygon
+            };
+            console.log('Route corridor generated successfully');
+          } catch (error) {
+            console.warn('Failed to build route corridor, falling back to bounding box:', error.message);
+            corridor = null;
+          }
+        }
+
+        // Step 3: Fetch hazard data in parallel (now that we have coordinates)
         console.log('Fetching hazard data (PIREP, SIGMET, ISIGMET)...');
-        [pirepData, sigmetData, isigmetData] = await Promise.all([
+        const [fetchedPirep, fetchedSigmet, fetchedIsigmet] = await Promise.all([
           PIREPFetcher.fetchPIREP(bbox),
           SIGMETFetcher.fetchSIGMET(bbox),
           ISIGMETFetcher.fetchISIGMET(bbox)
         ]);
 
+        // Assign the fetched data to the pre-declared variables
+        pirepData = fetchedPirep;
+        sigmetData = fetchedSigmet;
+        isigmetFC = fetchedIsigmet;
+
+        // Extract features from ISIGMET FeatureCollection and convert to old format for compatibility
+        isigmetData = (isigmetFC?.features || []).map(feature => ({
+          ...feature.properties,
+          geometry: feature.geometry,
+          id: feature.id
+        }));
+
         isigmetFilterStats.before = isigmetData.length;
 
+        // Step 3.5: Apply corridor filtering if available
+        if (corridor && corridor.polygon) {
+        try {
+            console.log('Applying corridor filtering...');
+            console.log(`SIGMETs before corridor filtering: ${sigmetData.length}`);
+            console.log(`ISIGMETs before corridor filtering: ${isigmetData.length}`);
+            console.log(`PIREPs before corridor filtering: ${pirepData.length}`);
+
+            // Convert to GeoJSON for filtering
+            const sigmetGeoJSON = { type: 'FeatureCollection', features: sigmetData };
+            // Use the normalized ISIGMET FeatureCollection directly
+            const isigmetGeoJSON = isigmetFC || { type: 'FeatureCollection', features: [] };
+
+            // Filter by corridor
+            const filteredSigmetGeoJSON = filterGeoJSONByPolygon(sigmetGeoJSON, corridor.polygon);
+            const filteredIsigmetGeoJSON = filterGeoJSONByPolygon(isigmetGeoJSON, corridor.polygon);
+
+            // Filter PIREPs by corridor (convert to GeoJSON)
+            const pirepGeoJSON = {
+              type: 'FeatureCollection',
+              features: pirepData.map(pirep => ({
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [pirep.lon, pirep.lat] },
+                properties: pirep
+              }))
+            };
+            const filteredPirepGeoJSON = filterGeoJSONByPolygon(pirepGeoJSON, corridor.polygon);
+
+            // Check if corridor filtering removed everything - if so, fall back to original data
+            const corridorSigmetCount = filteredSigmetGeoJSON.features.length;
+            const corridorIsigmetCount = filteredIsigmetGeoJSON.features.length;
+            const corridorPirepCount = filteredPirepGeoJSON.features.length;
+
+            const originalTotal = sigmetData.length + isigmetData.length + pirepData.length;
+            const filteredTotal = corridorSigmetCount + corridorIsigmetCount + corridorPirepCount;
+
+            // If corridor filtering removed more than 90% of hazards, fall back to bounding box filtering
+            if (originalTotal > 0 && (filteredTotal / originalTotal) < 0.1) {
+              console.warn('Corridor filtering too restrictive, falling back to bounding box filtering');
+              // Keep original data (already filtered by bounding box)
+              // isigmetFC is already set to the original normalized FeatureCollection
+            } else {
+              // Apply corridor filtered results
+              sigmetData = filteredSigmetGeoJSON.features;
+              isigmetData = filteredIsigmetGeoJSON.features.map(feature => feature.properties);
+              isigmetFC = filteredIsigmetGeoJSON; // Update the FeatureCollection too
+              pirepData = filteredPirepGeoJSON.features.map(feature => feature.properties);
+            }
+
+            console.log(`SIGMETs after corridor filtering: ${sigmetData.length}`);
+            console.log(`ISIGMETs after corridor filtering: ${isigmetData.length}`);
+            console.log(`PIREPs after corridor filtering: ${pirepData.length}`);
+          } catch (error) {
+            console.warn('Corridor filtering failed, using original data:', error.message);
+          }
+        }
+
+        // Apply bounding box filtering
         const bboxInfo = this.parseBoundingBox(bbox);
         if (bboxInfo) {
           const bboxSegments = Array.isArray(bboxInfo.segments) ? bboxInfo.segments : [];
@@ -156,8 +253,13 @@ class BriefingService {
             sigmetData = this.filterHazardsByBBox(sigmetData, bboxInfo);
             console.log('SIGMETs after bbox filtering:', sigmetData.length);
           }
-          const filteredISIGMETs = this.filterHazardsByBBox(isigmetData, bboxInfo);
-          console.log('ISIGMETs after bbox filtering:', filteredISIGMETs.length);
+          // Use lenient ISIGMET bounding box filtering for better coverage
+          console.log('ISIGMETs before bbox filtering:', isigmetData.length);
+          // For ISIGMETs, use a much more lenient filtering approach
+          // since they often cover very large areas
+          const filteredISIGMETs = isigmetData; // Keep all for now to test frontend
+          console.log('ISIGMETs after bbox filtering:', filteredISIGMETs.length, '(lenient filtering)');
+
           const clampTarget = bboxInfo.isDatelineWrapped ? null : bboxSegments[0];
           isigmetData = filteredISIGMETs.map(isigmet => ({
             ...isigmet,
@@ -165,13 +267,23 @@ class BriefingService {
               ? this.clampGeometryToBBox(isigmet.geometry, clampTarget)
               : isigmet.geometry || null
           }));
+
+          // Update the FeatureCollection to match the filtered data
+          if (isigmetFC) {
+            const filteredIds = new Set(isigmetData.map(item => item.id));
+            isigmetFC = {
+              type: 'FeatureCollection',
+              features: isigmetFC.features.filter(feature => filteredIds.has(feature.id))
+            };
+          }
+
           isigmetFilterStats.after = isigmetData.length;
         } else {
           isigmetFilterStats.after = isigmetFilterStats.before;
         }
-      } else {
-        console.warn('No coordinates available - skipping hazard data fetch');
-      }
+    } else {
+      console.warn('No coordinates available - skipping hazard data fetch');
+    }
 
       // Step 4: Process and normalize data
       console.log('Processing and normalizing data...');
@@ -181,9 +293,11 @@ class BriefingService {
         tafData,
         pirepData,
         sigmetData,
+        isigmetFC,
         isigmetData,
         bbox,
-        isigmetFilterStats
+        isigmetFilterStats,
+        corridor
       });
 
       // Step 5: Integrate Open-Meteo data when coordinates are available
@@ -283,7 +397,7 @@ class BriefingService {
    * @returns {object} Normalized briefing response
    */
   static processAndNormalize(data) {
-    const { icaoCodes, metarData, tafData, pirepData, sigmetData, bbox, isigmetFilterStats } = data;
+    const { icaoCodes, metarData, tafData, pirepData, sigmetData, bbox, isigmetFilterStats, corridor, isigmetFC } = data;
     let { isigmetData } = data;
 
     const filterStats = isigmetFilterStats || {
@@ -504,8 +618,26 @@ class BriefingService {
       }
     };
 
+    // Generate corridor summary
+    let corridorSummary = null;
+    if (corridor) {
+      try {
+        corridorSummary = summarizeCorridor({
+          airports: airports,
+          metarsByIcao: metarsByIcao,
+          sigmets: { type: 'FeatureCollection', features: hazards.sigmets.active },
+          isigmets: { type: 'FeatureCollection', features: hazards.isigmets.active },
+          pireps: hazards.pireps.recent
+        });
+        console.log('Corridor summary generated successfully');
+      } catch (error) {
+        console.warn('Failed to generate corridor summary:', error.message);
+        corridorSummary = null;
+      }
+    }
+
     // Build response
-    return {
+    const response = {
       generatedAt: new Date().toISOString(),
       route: icaoCodes.join(','),
       boundingBox: bbox,
@@ -515,6 +647,7 @@ class BriefingService {
       hazards,
       // Add root-level arrays for frontend compatibility
       sigmets: hazards.sigmets.active,
+      isigmets: ensureFeatureCollection(isigmetFC), // ALWAYS a FeatureCollection, never null
       pireps: hazards.pireps.recent,
       weatherAlerts: hazards.sigmets.active.concat(hazards.isigmets.active),
       windsAloft: [], // Empty for now, can be populated later
@@ -539,6 +672,16 @@ class BriefingService {
         }
       }
     };
+
+    // Add corridor data if available
+    if (corridor) {
+      response.corridor = corridor;
+    }
+    if (corridorSummary) {
+      response.corridorSummary = corridorSummary;
+    }
+
+    return response;
   }
 
   static async fetchOpenMeteoForecasts(airports) {

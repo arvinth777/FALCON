@@ -2,6 +2,7 @@ const { makeRequest } = require('../utils/awcClient');
 const TTLCache = require('../cache/ttlCache');
 const { normalizeTimestamp } = require('../utils/timestampUtils');
 const { isValidGeometry } = require('../utils/geo');
+const { normalizeISIGMET } = require('../utils/isigmetNormalize');
 
 class ISIGMETFetcher {
   static getCacheTTLSeconds() {
@@ -58,11 +59,25 @@ class ISIGMETFetcher {
       }
     }
 
-    const ttlSeconds = this.getCacheTTLSeconds();
-    TTLCache.set(cacheKey, combinedResults, ttlSeconds);
+    // Create a FeatureCollection from the combined results
+    const featureCollection = {
+      type: 'FeatureCollection',
+      features: combinedResults.map((item, idx) => ({
+        type: 'Feature',
+        id: item.id || `isigmet_${idx}`,
+        properties: item,
+        geometry: item.geometry
+      }))
+    };
 
-    console.log(`Successfully fetched ${combinedResults.length} International SIGMETs across ${bboxSegments.length} segment(s)`);
-    return combinedResults;
+    // Normalize the FeatureCollection using the new normalizer
+    const normalizedFC = normalizeISIGMET(featureCollection);
+
+    const ttlSeconds = this.getCacheTTLSeconds();
+    TTLCache.set(cacheKey, normalizedFC, ttlSeconds);
+
+    console.log(`Successfully fetched ${normalizedFC.features.length} International SIGMETs across ${bboxSegments.length} segment(s), dropped: ${normalizedFC._dropped || 0}`);
+    return normalizedFC;
   }
 
   static splitBoundingBox(bboxString) {
@@ -293,7 +308,13 @@ class ISIGMETFetcher {
     }
 
   const properties = feature.properties || {};
-  const requiredProps = ['id', 'hazard', 'validTimeFrom', 'validTimeTo'];
+
+  // Generate a fallback ID if missing
+  if (!properties.id) {
+    properties.id = `isigmet_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  const requiredProps = ['hazard', 'validTimeFrom', 'validTimeTo'];
     const missingProp = requiredProps.find(prop => properties[prop] === undefined || properties[prop] === null);
     if (missingProp) {
       console.warn('Skipping ISIGMET feature due to missing property:', missingProp);

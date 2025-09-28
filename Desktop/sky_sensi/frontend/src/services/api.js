@@ -96,6 +96,7 @@ const unwrapApiData = (payload) => {
 /**
  * Fetch weather briefing for the specified route
  * @param {string} route - Comma-separated ICAO airport codes
+ * @param {string} at - Optional ISO datetime string for historical weather
  * @returns {Promise<Object>} Weather briefing data with AI analysis
  */
 const ROUTE_PATTERN = /^[A-Z]{4}(?:,[A-Z]{4})*$/;
@@ -111,9 +112,11 @@ const normalizeRoute = (rawRoute) => {
 export const fetchBriefing = async (route) => {
   const cleanRoute = normalizeRoute(route);
 
+  const params = { route: cleanRoute };
+
   return withRetry(() => {
     return api.get('/briefing', {
-      params: { route: cleanRoute }
+      params
     });
   })
     .then(unwrapApiData)

@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Customized } from 'recharts';
 
 const CATEGORY_COLORS = {
   VFR: '#16a34a',
@@ -9,29 +8,17 @@ const CATEGORY_COLORS = {
   UNKNOWN: '#64748b'
 };
 
-const toMillis = (value) => {
-  if (!value) return NaN;
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? NaN : parsed.getTime();
-};
-
-const ensureCategory = (category) => {
-  const normalized = typeof category === 'string' ? category.toUpperCase() : '';
-  return CATEGORY_COLORS[normalized] ? normalized : 'UNKNOWN';
-};
-
-const formatTick = (timestamp) => {
-  if (!Number.isFinite(timestamp)) return '';
+const formatTime = (timestamp) => {
+  if (!timestamp) return '';
   const date = new Date(timestamp);
-  return `${date.toUTCString().slice(5, 16)} ${date.toUTCString().slice(17, 22)}Z`;
-};
-
-const formatTimeRange = (startMs, endMs) => {
-  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return 'Unknown period';
-  const start = new Date(startMs).toISOString().replace('T', ' ').replace('Z', 'Z');
-  const end = new Date(endMs).toISOString().replace('T', ' ').replace('Z', 'Z');
-  return `${start} → ${end}`;
+  return date.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'UTC',
+    timeZoneName: 'short'
+  });
 };
 
 const formatWind = (wind) => {
@@ -40,239 +27,63 @@ const formatWind = (wind) => {
   }
 
   const dir = wind.dir == null ? 'VRB' : `${wind.dir}°`;
-  if (wind.spd == null) {
-    return `Wind: ${dir}`;
-  }
-
-  if (wind.gst == null) {
-    return `Wind: ${dir} / ${wind.spd} kt`;
-  }
-
+  if (wind.spd == null) return `Wind: ${dir}`;
+  if (wind.gst == null) return `Wind: ${dir} / ${wind.spd} kt`;
   return `Wind: ${dir} / ${wind.spd}G${wind.gst} kt`;
 };
 
-const normalizeAirports = (tafData) => {
-  if (!Array.isArray(tafData)) {
-    return [];
-  }
+const normalizeData = (tafData) => {
+  if (!Array.isArray(tafData)) return [];
 
-  // Convert ISO strings to ms numbers for the chart
-  const parseMs = iso => (iso ? new Date(iso).getTime() : null);
+  return tafData
+    .filter(item => Array.isArray(item?.flightTimeline) && item.flightTimeline.length > 0)
+    .map(airport => ({
+      icao: airport.icao || airport.icaoCode || 'UNKNOWN',
+      name: airport.name || airport.icao || airport.icaoCode || 'UNKNOWN',
+      timeline: airport.flightTimeline
+        .map(block => {
+          const startMs = new Date(block.start || block.startTime).getTime();
+          const endMs = new Date(block.end || block.endTime).getTime();
 
-  const looksLikeAirport = tafData.some(item => Array.isArray(item?.flightTimeline));
+          if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+            return null;
+          }
 
-  if (looksLikeAirport) {
-    return tafData
-      .filter(item => Array.isArray(item?.flightTimeline))
-      .map(item => {
-        const icao = item.icao || item.icaoCode || item.identifier || item.code || 'UNKNOWN';
-        const name = item.name || item.airportName || icao;
-        const timeline = item.flightTimeline
-          .map(block => {
-            const startMs = parseMs(block.start) || toMillis(block.start ?? block.startTime);
-            const endMs = parseMs(block.end) || toMillis(block.end ?? block.endTime);
-            if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
-              return null;
-            }
-            return {
-              ...block,
-              startMs,
-              endMs,
-              category: ensureCategory(block.category),
-              visibilitySM: Number.isFinite(block.visibilitySM) ? block.visibilitySM : null,
-              ceilingFT: Number.isFinite(block.ceilingFT) ? block.ceilingFT : null,
-              wind: block.wind || { dir: null, spd: null, gst: null }
-            };
-          })
-          .filter(Boolean);
-
-        return {
-          icao,
-          name,
-          timeline
-        };
-      })
-      .filter(item => item.timeline.length > 0);
-  }
-
-  const grouped = new Map();
-
-  tafData.forEach(entry => {
-    const icao = entry?.airportCode || entry?.icao || entry?.icaoCode || 'UNKNOWN';
-    const startMs = parseMs(entry?.start) || toMillis(entry?.start ?? entry?.startTime ?? entry?.validFrom);
-    const endMs = parseMs(entry?.end) || toMillis(entry?.end ?? entry?.endTime ?? entry?.validTo);
-    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
-      return;
-    }
-
-    if (!grouped.has(icao)) {
-      grouped.set(icao, {
-        icao,
-        name: entry?.airportName || icao,
-        timeline: []
-      });
-    }
-
-    const bucket = grouped.get(icao);
-    bucket.timeline.push({
-      start: entry.start ?? entry.startTime ?? entry.validFrom,
-      end: entry.end ?? entry.endTime ?? entry.validTo,
-      startMs,
-      endMs,
-      category: ensureCategory(entry.category ?? entry.flightCategory),
-      visibilitySM: Number.isFinite(entry.visibilitySM ?? entry.visibility) ? (entry.visibilitySM ?? entry.visibility) : null,
-      ceilingFT: Number.isFinite(entry.ceilingFT ?? entry.ceiling) ? (entry.ceilingFT ?? entry.ceiling) : null,
-      wind: entry.wind || { dir: entry.windDirection ?? null, spd: entry.windSpeed ?? null, gst: entry.windGust ?? null }
-    });
-  });
-
-  return Array.from(grouped.values()).filter(item => item.timeline.length > 0);
+          return {
+            ...block,
+            startMs,
+            endMs,
+            category: (block.category || 'UNKNOWN').toUpperCase(),
+            duration: endMs - startMs
+          };
+        })
+        .filter(Boolean)
+    }))
+    .filter(airport => airport.timeline.length > 0);
 };
 
 const TAFTimeline = ({ tafData = [], className = '', height = 320 }) => {
   const [hovered, setHovered] = useState(null);
 
-  // Debug logging
-  console.log('TAFTimeline received data:', {
-    tafDataLength: tafData.length,
-    tafData: tafData.slice(0, 2) // Log first 2 items
-  });
+  const airports = useMemo(() => normalizeData(tafData), [tafData]);
 
-  const airports = useMemo(() => {
-    const normalized = normalizeAirports(tafData);
-    console.log('TAFTimeline normalized airports:', {
-      airportsLength: normalized.length,
-      airports: normalized.map(a => ({
-        icao: a.icao,
-        timelineLength: a.timeline.length,
-        firstBlock: a.timeline[0]
-      }))
-    });
-    return normalized;
-  }, [tafData]);
+  const timeExtent = useMemo(() => {
+    if (airports.length === 0) return null;
 
-  const timeDomain = useMemo(() => {
-    if (airports.length === 0) {
-      // If empty, use a 6-hour window around now to avoid 1970/1984 axes
-      const now = Date.now();
-      const sixHours = 6 * 60 * 60 * 1000;
-      return [now - sixHours/2, now + sixHours/2];
-    }
-
-    const times = airports.flatMap(airport =>
+    const allTimes = airports.flatMap(airport =>
       airport.timeline.flatMap(block => [block.startMs, block.endMs])
-    ).filter(Number.isFinite);
+    );
 
-    if (times.length === 0) {
-      // If no valid times, use a 6-hour window around now
-      const now = Date.now();
-      const sixHours = 6 * 60 * 60 * 1000;
-      return [now - sixHours/2, now + sixHours/2];
-    }
+    if (allTimes.length === 0) return null;
 
-    const min = Math.min(...times);
-    const max = Math.max(...times);
-
-    if (min === max) {
-      const padding = 60 * 60 * 1000; // 1 hour
-      return [min - padding, max + padding];
-    }
-
-    return [min, max];
+    return {
+      start: Math.min(...allTimes),
+      end: Math.max(...allTimes),
+      duration: Math.max(...allTimes) - Math.min(...allTimes)
+    };
   }, [airports]);
 
-  const chartRows = useMemo(() => (
-    airports.map(airport => ({ name: airport.icao }))
-  ), [airports]);
-
-  const renderBars = ({ xAxisMap, yAxisMap }) => {
-    if (!xAxisMap || !yAxisMap) {
-      return null;
-    }
-
-    const xScale = xAxisMap.x?.scale;
-    const yScale = yAxisMap.y?.scale;
-    const bandwidth = typeof yAxisMap.y?.bandwidth === 'function'
-      ? yAxisMap.y.bandwidth()
-      : 40;
-
-    if (!xScale || !yScale) {
-      return null;
-    }
-
-    return (
-      <g>
-        {airports.map((airport, airportIndex) => {
-          const rowTop = yScale(airport.icao);
-          const barHeight = Math.min(bandwidth * 0.7, 26);
-          const offsetY = rowTop + (bandwidth - barHeight) / 2;
-
-          return airport.timeline.map((block, blockIndex) => {
-            const startX = xScale(block.startMs);
-            const endX = xScale(block.endMs);
-            const width = endX - startX;
-
-            if (!Number.isFinite(width) || width <= 0) {
-              return null;
-            }
-
-            const color = CATEGORY_COLORS[block.category] || CATEGORY_COLORS.UNKNOWN;
-
-            return (
-              <g key={`${airportIndex}-${blockIndex}`}>
-                <rect
-                  x={startX}
-                  y={offsetY}
-                  width={Math.max(2, width)}
-                  height={barHeight}
-                  rx={3}
-                  fill={color}
-                  opacity={0.85}
-                  stroke="#ffffff"
-                  strokeWidth={1}
-                  onMouseEnter={() => setHovered({ airport, block })}
-                  onMouseLeave={() => setHovered(null)}
-                />
-                {width > 48 && (
-                  <text
-                    x={startX + width / 2}
-                    y={offsetY + barHeight / 2}
-                    fill="#fff"
-                    fontSize={9}
-                    fontWeight="600"
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    pointerEvents="none"
-                    style={{ textShadow: '0 1px 2px rgba(15, 23, 42, 0.5)' }}
-                  >
-                    {block.category}
-                  </text>
-                )}
-              </g>
-            );
-          });
-        })}
-      </g>
-    );
-  };
-
-  const SafeCustomized = (props) => {
-    try {
-      return renderBars(props);
-    } catch (error) {
-      if (import.meta?.env?.VITE_ENABLE_DEBUG_LOGS === 'true') {
-        console.error('TAFTimeline render error:', error);
-      }
-      return null;
-    }
-  };
-
-  if (!airports.length || !timeDomain) {
-    console.log('TAFTimeline: No data to display', {
-      airportsLength: airports.length,
-      timeDomain,
-      tafDataLength: tafData.length
-    });
+  if (!airports.length || !timeExtent) {
     return (
       <div className={`bg-gray-50 rounded-lg border-2 border-dashed border-gray-300 p-6 text-center ${className}`}>
         <div className="text-gray-600">
@@ -281,20 +92,20 @@ const TAFTimeline = ({ tafData = [], className = '', height = 320 }) => {
           </svg>
           <p className="text-sm font-medium text-gray-900">No TAF blocks available</p>
           <p className="text-xs text-gray-500">Flight timelines will appear once forecasts are provided</p>
-          <p className="text-xs text-red-500 mt-2">Debug: {airports.length} airports, {tafData.length} TAF entries</p>
         </div>
       </div>
     );
   }
 
+  const rowHeight = Math.min(60, Math.max(40, (height - 120) / airports.length));
+  const chartWidth = 800; // Fixed width for calculations
+
   return (
     <div className={`bg-white rounded-lg border border-gray-200 ${className}`}>
       <div className="p-4 border-b border-gray-200 flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900">
-            TAF Flight Timeline
-          </h3>
-          <p className="text-sm text-gray-600">Forecast flight categories per airport with contiguous time ranges</p>
+          <h3 className="text-lg font-semibold text-gray-900">TAF Flight Timeline</h3>
+          <p className="text-sm text-gray-600">Forecast flight categories per airport</p>
         </div>
       </div>
 
@@ -309,32 +120,108 @@ const TAFTimeline = ({ tafData = [], className = '', height = 320 }) => {
           ))}
         </div>
 
-        <div className="relative" style={{ height: `${height}px` }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={chartRows} margin={{ top: 20, right: 24, left: 96, bottom: 32 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis
-                type="number"
-                domain={timeDomain}
-                tickFormatter={formatTick}
-                tick={{ fontSize: 10 }}
-                interval={0}
-                angle={-35}
-                textAnchor="end"
-                height={60}
-              />
-              <YAxis
-                type="category"
-                dataKey="name"
-                tick={{ fontSize: 11 }}
-                width={80}
-              />
-              <Customized component={SafeCustomized} />
-            </ComposedChart>
-          </ResponsiveContainer>
+        <div className="relative overflow-x-auto" style={{ height: `${height + 30}px` }}>
+          <div className="flex">
+            {/* Airport labels */}
+            <div className="flex-shrink-0 w-24 bg-gray-50 border-r">
+              {airports.map((airport, index) => (
+                <div
+                  key={airport.icao}
+                  className="flex items-center justify-end px-2 text-xs font-medium text-gray-700 border-b border-gray-200"
+                  style={{ height: `${rowHeight}px` }}
+                >
+                  {airport.icao}
+                </div>
+              ))}
+              {/* Space for time axis */}
+              <div style={{ height: '30px' }} className="bg-gray-50"></div>
+            </div>
 
+            {/* Timeline area */}
+            <div className="flex-1 relative min-w-0">
+              <svg width="100%" height="100%" className="block">
+                {airports.map((airport, airportIndex) => {
+                  const y = airportIndex * rowHeight;
+                  const barHeight = rowHeight * 0.6;
+                  const barY = y + (rowHeight - barHeight) / 2;
+
+                  return (
+                    <g key={airport.icao}>
+                      {/* Row background */}
+                      <rect
+                        x={0}
+                        y={y}
+                        width="100%"
+                        height={rowHeight}
+                        fill={airportIndex % 2 === 0 ? '#f9fafb' : '#ffffff'}
+                        stroke="#e5e7eb"
+                        strokeWidth={0.5}
+                      />
+
+                      {/* Timeline blocks */}
+                      {airport.timeline.map((block, blockIndex) => {
+                        const startPercent = ((block.startMs - timeExtent.start) / timeExtent.duration) * 100;
+                        const durationPercent = (block.duration / timeExtent.duration) * 100;
+                        const color = CATEGORY_COLORS[block.category] || CATEGORY_COLORS.UNKNOWN;
+
+                        return (
+                          <rect
+                            key={`${airportIndex}-${blockIndex}`}
+                            x={`${startPercent}%`}
+                            y={barY}
+                            width={`${Math.max(0.5, durationPercent)}%`}
+                            height={barHeight}
+                            rx={3}
+                            fill={color}
+                            opacity={0.85}
+                            stroke="#ffffff"
+                            strokeWidth={1}
+                            className="cursor-pointer hover:opacity-100"
+                            onMouseEnter={() => setHovered({ airport, block })}
+                            onMouseLeave={() => setHovered(null)}
+                          />
+                        );
+                      })}
+                    </g>
+                  );
+                })}
+
+                {/* Time axis */}
+                <g>
+                  {[0, 25, 50, 75, 100].map(percent => {
+                    const time = timeExtent.start + (timeExtent.duration * percent / 100);
+                    const yPos = airports.length * rowHeight;
+                    return (
+                      <g key={percent}>
+                        <line
+                          x1={`${percent}%`}
+                          y1={0}
+                          x2={`${percent}%`}
+                          y2={yPos}
+                          stroke="#d1d5db"
+                          strokeWidth={0.5}
+                          strokeDasharray="2,2"
+                        />
+                        <text
+                          x={`${percent}%`}
+                          y={yPos + 15}
+                          textAnchor="middle"
+                          fontSize={10}
+                          fill="#6b7280"
+                        >
+                          {formatTime(time)}
+                        </text>
+                      </g>
+                    );
+                  })}
+                </g>
+              </svg>
+            </div>
+          </div>
+
+          {/* Hover tooltip */}
           {hovered && (
-            <div className="absolute bottom-4 right-4 max-w-xs bg-white border border-gray-200 rounded-lg shadow-xl p-4 text-sm text-gray-800">
+            <div className="absolute bottom-4 right-4 max-w-xs bg-white border border-gray-200 rounded-lg shadow-xl p-4 text-sm text-gray-800 z-10">
               <div className="font-semibold text-gray-900 mb-1">
                 {hovered.airport.icao}
                 {hovered.airport.name && hovered.airport.name !== hovered.airport.icao && (
@@ -343,7 +230,7 @@ const TAFTimeline = ({ tafData = [], className = '', height = 320 }) => {
               </div>
               <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">{hovered.block.category}</div>
               <div className="space-y-1">
-                <div>{formatTimeRange(hovered.block.startMs, hovered.block.endMs)}</div>
+                <div>{formatTime(hovered.block.startMs)} → {formatTime(hovered.block.endMs)}</div>
                 <div>{hovered.block.visibilitySM != null ? `Visibility: ${hovered.block.visibilitySM} SM` : 'Visibility: N/A'}</div>
                 <div>{hovered.block.ceilingFT != null ? `Ceiling: ${hovered.block.ceilingFT} ft` : 'Ceiling: N/A'}</div>
                 <div>{formatWind(hovered.block.wind)}</div>

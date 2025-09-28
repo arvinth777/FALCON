@@ -1,20 +1,21 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, Polygon, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, Polygon, GeoJSON, useMap, LayersControl } from 'react-leaflet';
 import { divIcon } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-defaulticon-compatibility/dist/leaflet-defaulticon-compatibility.css';
 import 'leaflet-defaulticon-compatibility';
 import MapPopup from './MapPopup';
 import { getFlightCategory } from '../utils/formatters';
-import { 
-  calculateBounds, 
-  generateRouteLineCoordinates, 
+import {
+  calculateBounds,
+  generateRouteLineCoordinates,
   convertSigmetToPolygon,
   getSigmetColor,
   getPirepIcon,
   getAirportMarkerColor,
   calculateRouteDistance
 } from '../utils/mapUtils';
+import { getEnv } from '../utils/env';
 
 class MapErrorBoundary extends React.Component {
   constructor(props) {
@@ -71,9 +72,10 @@ const MapBoundsHandler = ({ bounds }) => {
   return null;
 };
 
-const WeatherMap = ({ 
-  airports = [], 
-  sigmets = [], 
+const WeatherMap = ({
+  airports = [],
+  sigmets = [],
+  isigmets = null,
   pireps = [],
   metarsByIcao = {},
   tafsByIcao = {},
@@ -87,12 +89,13 @@ const WeatherMap = ({
   onPirepClick
 }) => {
   // Requires VITE_OWM_KEY defined in frontend/.env.local
-  const owmKey = import.meta.env.VITE_OWM_KEY;
-  const hasCloudLayer = Boolean(owmKey);
+  const OWM_KEY = import.meta.env.VITE_OWM_KEY;
+  const hasCloudLayer = Boolean(OWM_KEY);
 
   const [selectedLayers, setSelectedLayers] = useState({
     airports: showAirports,
     sigmets: showSigmets,
+    isigmets: false,
     pireps: showPireps,
     route: true,
     clouds: false,
@@ -100,12 +103,12 @@ const WeatherMap = ({
     wind: false
   });
 
-  // Debug logging for cloud layer
-  console.log('Cloud layer debug:', {
-    owmKey: owmKey ? `${owmKey.substring(0, 8)}...` : 'NOT_SET',
-    hasCloudLayer,
-    cloudsEnabled: selectedLayers.clouds
+  const [layerLoading, setLayerLoading] = useState({
+    clouds: false,
+    precipitation: false,
+    wind: false
   });
+
 
   const [currentTileLayer, setCurrentTileLayer] = useState('openstreetmap');
   const [mapError, setMapError] = useState(null);
@@ -134,11 +137,11 @@ const WeatherMap = ({
       maxZoom: 18,
       priority: 3
     },
-    stamen: {
-      name: 'Stamen Terrain',
-      url: 'https://stamen-tiles-{s}.a.ssl.fastly.net/terrain/{z}/{x}/{y}{r}.png',
-      attribution: 'Map tiles by <a href="http://stamen.com">Stamen Design</a>, <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a> &mdash; Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      maxZoom: 18,
+    opentopo: {
+      name: 'OpenTopoMap',
+      url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+      attribution: '&copy; OpenTopoMap &copy; OpenStreetMap contributors',
+      maxZoom: 17,
       priority: 4
     }
   };
@@ -278,6 +281,27 @@ const WeatherMap = ({
 
     return normalized;
   }, [sigmets, selectedLayers.sigmets]);
+
+  // ISIGMET styling and popup functions
+  const isigmetStyle = (feature) => {
+    const p = feature?.properties || {};
+    const phen = (p.phenomenon || p.hazard || "").toUpperCase();
+    let color = "#9146ff";
+    if (phen.includes("TURB")) color = "#f97316";
+    if (phen.includes("ICE"))  color = "#38bdf8";
+    if (phen.includes("CONV") || phen.includes("TS")) color = "#ef4444";
+    return { color, weight: 1, fillOpacity: 0.25, opacity: 0.9 };
+  };
+
+  const onEachISigmet = (feature, layer) => {
+    const p = feature?.properties || {};
+    const lines = [];
+    if (p.phenomenon) lines.push(`<b>${p.phenomenon}</b>`);
+    if (p.validTimeFrom && p.validTimeTo) lines.push(`Valid: ${p.validTimeFrom} → ${p.validTimeTo}`);
+    if (p.levelinfo || p.level) lines.push(`${p.levelinfo || p.level}`);
+    if (p._bufferedFrom === "LineString") lines.push("(Buffered line)");
+    layer.bindPopup(lines.join("<br>") || "ISIGMET");
+  };
 
   const MAX_PIREPS_BEFORE_CLUSTER = 100;
 
@@ -421,8 +445,19 @@ const WeatherMap = ({
     }
   };
 
-  // Handle layer toggle
+  // Handle layer toggle with intelligent management
   const toggleLayer = (layerType) => {
+    // For weather layers, manage loading state
+    if (['clouds', 'precipitation', 'wind'].includes(layerType)) {
+      if (!selectedLayers[layerType]) {
+        setLayerLoading(prev => ({ ...prev, [layerType]: true }));
+        // Reset loading state after a brief delay
+        setTimeout(() => {
+          setLayerLoading(prev => ({ ...prev, [layerType]: false }));
+        }, 1500);
+      }
+    }
+
     setSelectedLayers(prev => ({
       ...prev,
       [layerType]: !prev[layerType]
@@ -495,7 +530,17 @@ const WeatherMap = ({
               />
               <span>SIGMETs</span>
             </label>
-            
+
+            <label className="flex items-center space-x-2 text-xs text-gray-800">
+              <input
+                type="checkbox"
+                checked={selectedLayers.isigmets}
+                onChange={() => toggleLayer('isigmets')}
+                className="rounded"
+              />
+              <span>ISIGMETs</span>
+            </label>
+
             <label className="flex items-center space-x-2 text-xs text-gray-800">
               <input
                 type="checkbox"
@@ -506,43 +551,38 @@ const WeatherMap = ({
               <span>PIREPs</span>
             </label>
 
-            {hasCloudLayer ? (
-              <>
-                <label className="flex items-center space-x-2 text-xs text-gray-800">
-                  <input
-                    type="checkbox"
-                    checked={selectedLayers.clouds}
-                    onChange={() => toggleLayer('clouds')}
-                    className="rounded"
-                  />
-                  <span>Cloud Coverage</span>
-                </label>
+            <label className={`flex items-center space-x-2 text-xs ${hasCloudLayer ? 'text-gray-800' : 'text-gray-400'}`}>
+              <input
+                type="checkbox"
+                checked={selectedLayers.clouds && hasCloudLayer}
+                onChange={() => hasCloudLayer && toggleLayer('clouds')}
+                className="rounded"
+                disabled={!hasCloudLayer || layerLoading.clouds}
+              />
+              <span>Cloud Coverage{layerLoading.clouds ? ' (loading...)' : (!hasCloudLayer ? ' (unavailable: set VITE_OWM_KEY)' : '')}</span>
+            </label>
 
-                <label className="flex items-center space-x-2 text-xs text-gray-800">
-                  <input
-                    type="checkbox"
-                    checked={selectedLayers.precipitation}
-                    onChange={() => toggleLayer('precipitation')}
-                    className="rounded"
-                  />
-                  <span>Precipitation</span>
-                </label>
+            <label className={`flex items-center space-x-2 text-xs ${hasCloudLayer ? 'text-gray-800' : 'text-gray-400'}`}>
+              <input
+                type="checkbox"
+                checked={selectedLayers.precipitation && hasCloudLayer}
+                onChange={() => hasCloudLayer && toggleLayer('precipitation')}
+                className="rounded"
+                disabled={!hasCloudLayer || layerLoading.precipitation}
+              />
+              <span>Precipitation{layerLoading.precipitation ? ' (loading...)' : (!hasCloudLayer ? ' (unavailable: set VITE_OWM_KEY)' : '')}</span>
+            </label>
 
-                <label className="flex items-center space-x-2 text-xs text-gray-800">
-                  <input
-                    type="checkbox"
-                    checked={selectedLayers.wind}
-                    onChange={() => toggleLayer('wind')}
-                    className="rounded"
-                  />
-                  <span>Wind</span>
-                </label>
-              </>
-            ) : (
-              <div className="text-xs text-gray-400 italic">
-                Cloud overlay unavailable (set VITE_OWM_KEY)
-              </div>
-            )}
+            <label className={`flex items-center space-x-2 text-xs ${hasCloudLayer ? 'text-gray-800' : 'text-gray-400'}`}>
+              <input
+                type="checkbox"
+                checked={selectedLayers.wind && hasCloudLayer}
+                onChange={() => hasCloudLayer && toggleLayer('wind')}
+                className="rounded"
+                disabled={!hasCloudLayer || layerLoading.wind}
+              />
+              <span>Wind{layerLoading.wind ? ' (loading...)' : (!hasCloudLayer ? ' (unavailable: set VITE_OWM_KEY)' : '')}</span>
+            </label>
 
           </div>
         </div>
@@ -607,6 +647,12 @@ const WeatherMap = ({
         scrollWheelZoom={true}
         className="h-full w-full rounded-lg"
         style={{ minHeight: '400px' }}
+        preferCanvas={true}
+        updateWhenIdle={true}
+        updateWhenZooming={false}
+        fadeAnimation={true}
+        zoomAnimation={true}
+        markerZoomAnimation={true}
       >
         <TileLayer
           key={currentTileLayer} // Force re-render when tile layer changes
@@ -620,44 +666,78 @@ const WeatherMap = ({
           }}
         />
 
-        {hasCloudLayer && selectedLayers.clouds && (
+        {OWM_KEY && selectedLayers.clouds && (
           <TileLayer
-            key={`owm-clouds-${owmKey}`}
-            url={`https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${owmKey}`}
-            opacity={0.6}
-            className="owm-tiles"
-            attribution="&copy; OpenWeatherMap"
+            key={`owm-clouds-${OWM_KEY}`}
+            url={`https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${OWM_KEY}`}
+            opacity={0.7}
+            className="owm-cloud-tiles"
+            attribution="&copy; OpenWeather"
             maxZoom={12}
-            zIndex={600}
+            zIndex={650}
+            tileSize={256}
+            updateWhenIdle={true}
+            updateWhenZooming={false}
+            keepBuffer={2}
+            crossOrigin={true}
             eventHandlers={{
-              loading: () => console.log('Loading cloud tiles...'),
-              load: () => console.log('Cloud tiles loaded successfully'),
-              tileerror: (error) => console.error('Cloud tile loading error:', error)
+              loading: () => {
+                setLayerLoading(prev => ({ ...prev, clouds: true }));
+                console.log('Loading cloud tiles...');
+              },
+              load: () => {
+                setLayerLoading(prev => ({ ...prev, clouds: false }));
+                console.log('Cloud tiles loaded successfully');
+              },
+              tileerror: (error) => {
+                setLayerLoading(prev => ({ ...prev, clouds: false }));
+                console.error('Cloud tile loading error:', error);
+              }
             }}
           />
         )}
 
-        {hasCloudLayer && selectedLayers.precipitation && (
+        {OWM_KEY && selectedLayers.precipitation && (
           <TileLayer
-            key={`owm-precip-${owmKey}`}
-            url={`https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=${owmKey}`}
-            opacity={0.9}
-            className="owm-tiles"
-            attribution="&copy; OpenWeatherMap"
+            key={`owm-precip-${OWM_KEY}`}
+            url={`https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=${OWM_KEY}`}
+            opacity={0.7}
+            className="owm-precip-tiles"
+            attribution="&copy; OpenWeather"
             maxZoom={12}
             zIndex={610}
+            tileSize={256}
+            updateWhenIdle={true}
+            updateWhenZooming={false}
+            keepBuffer={2}
+            crossOrigin={true}
+            eventHandlers={{
+              loading: () => setLayerLoading(prev => ({ ...prev, precipitation: true })),
+              load: () => setLayerLoading(prev => ({ ...prev, precipitation: false })),
+              tileerror: () => setLayerLoading(prev => ({ ...prev, precipitation: false }))
+            }}
           />
         )}
 
-        {hasCloudLayer && selectedLayers.wind && (
+        {OWM_KEY && selectedLayers.wind && (
           <TileLayer
-            key={`owm-wind-${owmKey}`}
-            url={`https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=${owmKey}`}
-            opacity={0.9}
-            className="owm-tiles"
-            attribution="&copy; OpenWeatherMap"
+            key={`owm-wind-${OWM_KEY}`}
+            url={`https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=${OWM_KEY}`}
+            opacity={0.7}
+            className="owm-wind-tiles"
+            attribution="&copy; OpenWeather"
             maxZoom={12}
             zIndex={620}
+            tileSize={256}
+            updateWhenIdle={true}
+            updateWhenZooming={false}
+            keepBuffer={2}
+            crossOrigin={true}
+            eventHandlers={{
+              loading: () => setLayerLoading(prev => ({ ...prev, wind: true })),
+              load: () => setLayerLoading(prev => ({ ...prev, wind: false })),
+              tileerror: () => setLayerLoading(prev => ({ ...prev, wind: false }))
+            }}
           />
         )}
         
@@ -751,6 +831,16 @@ const WeatherMap = ({
             </Polygon>
           );
         })}
+
+        {/* ISIGMET Layer */}
+        {selectedLayers.isigmets && isigmets?.features?.length ? (
+          <GeoJSON
+            key={`isigmets-${isigmets.features.length}`}
+            data={isigmets}
+            style={isigmetStyle}
+            onEachFeature={onEachISigmet}
+          />
+        ) : null}
 
         {/* PIREP Markers */}
         {selectedLayers.pireps && aggregatedPireps.map((pirep, index) => {

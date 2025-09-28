@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import { Plane, Cloud, AlertTriangle, Map, BarChart3, TrendingUp } from 'lucide-react'
 import RouteInput from './components/RouteInput.jsx'
+import CorridorSummaryStrip from './components/CorridorSummaryStrip.jsx'
 import AISummary from './components/AISummary.jsx'
 import AlertsDisplay from './components/AlertsDisplay.jsx'
 import ForecastVsReality from './components/ForecastVsReality.jsx'
@@ -38,7 +39,7 @@ function App() {
     setLoading(true);
     setError(null);
     setCurrentRoute(route);
-    
+
     try {
       const validatedData = await fetchBriefing(route);
       setBriefingData(validatedData);
@@ -137,12 +138,20 @@ function App() {
       <main className="max-w-7xl mx-auto px-6 py-6">
         {/* Route Input - Always visible at top */}
         <div className="mb-6">
-          <RouteInput 
+          <RouteInput
             onFetchBriefing={handleFetchBriefing}
             loading={loading}
             currentRoute={currentRoute}
           />
         </div>
+
+        {/* Corridor Summary Strip */}
+        {briefingData && briefingData.corridorSummary && (
+          <CorridorSummaryStrip
+            summary={briefingData.corridorSummary}
+            updatedAt={briefingData.generatedAt}
+          />
+        )}
 
         {/* Error State */}
         {error && (
@@ -280,6 +289,7 @@ function App() {
                       <WeatherMap
                         airports={mapData.airports}
                         sigmets={mapData.sigmets}
+                        isigmets={briefingData?.isigmets}
                         pireps={mapData.pireps}
                         metarsByIcao={briefingData?.metarsByIcao || {}}
                         tafsByIcao={briefingData?.tafsByIcao || {}}

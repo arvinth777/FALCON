@@ -59,15 +59,18 @@ class TAFFetcher {
   /**
    * Fetch TAF data for a single chunk of ICAO codes
    * @param {Array} chunkIds - Chunk of ICAO codes
+   * @param {Object} options - Optional parameters including historical window
    * @returns {Promise<Array>} Array of TAF data objects for this chunk
    */
   static async fetchTAFChunk(chunkIds) {
     try {
+      const params = {
+        ids: chunkIds.join(','),
+        format: 'json'
+      };
+
       const response = await awcClient.get('/taf', {
-        params: {
-          ids: chunkIds.join(','),
-          format: 'json'
-        }
+        params
       });
 
       // Handle 204 No Content (no data available)
@@ -130,11 +133,13 @@ class TAFFetcher {
         
         // Retry once after backoff
         try {
+          const retryParams = {
+            ids: chunkIds.join(','),
+            format: 'json'
+          };
+
           const retryResponse = await awcClient.get('/taf', {
-            params: {
-              ids: chunkIds.join(','),
-              format: 'json'
-            }
+            params: retryParams
           });
 
           if (retryResponse.status === 204 || !retryResponse.data) {

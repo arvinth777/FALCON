@@ -60,11 +60,13 @@ class METARFetcher {
    */
   static async fetchMETARChunk(chunkIds) {
     try {
+      const params = {
+        ids: chunkIds.join(','),
+        format: 'json'
+      };
+
       const response = await awcClient.get('/metar', {
-        params: {
-          ids: chunkIds.join(','),
-          format: 'json'
-        }
+        params
       });
 
       // Handle 204 No Content (no data available)
@@ -117,11 +119,13 @@ class METARFetcher {
         
         // Retry once after backoff
         try {
+          const retryParams = {
+            ids: chunkIds.join(','),
+            format: 'json'
+          };
+
           const retryResponse = await awcClient.get('/metar', {
-            params: {
-              ids: chunkIds.join(','),
-              format: 'json'
-            }
+            params: retryParams
           });
 
           if (retryResponse.status === 204 || !retryResponse.data) {

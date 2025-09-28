@@ -285,4 +285,26 @@
     content: '';
     @apply fixed inset-0 bg-black/50 backdrop-blur-sm z-40;
   }
+
+  /* OpenWeather Map layer styling - optimized for performance */
+  .owm-cloud-tiles {
+    filter: contrast(1.3) brightness(0.9) hue-rotate(180deg);
+    mix-blend-mode: multiply;
+    will-change: transform;
+    transform: translateZ(0);
+  }
+
+  .owm-wind-tiles {
+    filter: contrast(1.4) brightness(1.1) saturate(1.3);
+    mix-blend-mode: normal;
+    will-change: transform;
+    transform: translateZ(0);
+  }
+
+  .owm-precip-tiles {
+    filter: contrast(1.2) brightness(1.05);
+    mix-blend-mode: normal;
+    will-change: transform;
+    transform: translateZ(0);
+  }
 }
